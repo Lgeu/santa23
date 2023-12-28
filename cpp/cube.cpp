@@ -3,6 +3,7 @@
 #include <iostream>
 #include <memory>
 #include <ostream>
+#include <string>
 #include <vector>
 
 using std::array;
@@ -12,6 +13,7 @@ using std::endl;
 using std::make_shared;
 using std::ostream;
 using std::shared_ptr;
+using std::string;
 using std::vector;
 
 using i8 = signed char;
@@ -46,8 +48,23 @@ template <int siz> struct RandomNumberTable {
     }
 };
 
-template <int order, int n_colors, typename ColorType, bool use_hash = false>
+struct ColorType6 {
+    static constexpr auto kNColors = 6;
+    i8 data;
+
+    inline auto operator<=>(const ColorType6&) const = default;
+
+    inline void Print(ostream& os) const { os << (char)('A' + data); }
+
+    friend auto& operator<<(ostream& os, const ColorType6 t) {
+        t.Print(os);
+        return os;
+    }
+};
+
+template <int order, typename ColorType_ = ColorType6, bool use_hash = false>
 struct Face {
+    using ColorType = ColorType_;
     static_assert(sizeof(ColorType) == 1); // 実質最大 24 色なので 1byte
 
     // 回転した時にいい感じに計算できるような乱数表
@@ -92,8 +109,8 @@ struct Face {
         for (auto y = 0; y < order; y++)
             for (auto x = 0; x < order; x++) {
                 if constexpr (use_hash)
-                    hash_value ^=
-                        rnt->Get(((y * order) + x) * n_colors + color);
+                    hash_value ^= rnt->Get(
+                        ((y * order) + x) * ColorType::kNColors + color);
                 facelets[y][x] = color;
             }
     }
@@ -126,13 +143,14 @@ struct Face {
     inline void Set(const int y, const int x, const ColorType color) {
         assert(0 <= y && y < order);
         assert(0 <= x && x < order);
-        assert(0 <= color && color < n_colors);
 
         // 回転操作に対してハッシュの計算が重すぎるような気がする
         if constexpr (use_hash) {
             assert(rnt.get() != nullptr);
-            hash_value ^= rnt->Get(((y * order) + x) * n_colors + Get(y, x));
-            hash_value ^= rnt->Get(((y * order) + x) * n_colors + color);
+            hash_value ^=
+                rnt->Get(((y * order) + x) * ColorType::kNColors + Get(y, x));
+            hash_value ^=
+                rnt->Get(((y * order) + x) * ColorType::kNColors + color);
         }
         switch (orientation) {
         case 0:
@@ -150,6 +168,12 @@ struct Face {
         default:
             assert(false);
         }
+    }
+
+    inline ColorType GetIgnoringOrientation(const int y, const int x) const {
+        assert(0 <= y && y < order);
+        assert(0 <= x && x < order);
+        return facelets[y][x];
     }
 
     inline auto Hash() const
@@ -172,6 +196,12 @@ struct Move {
             array<const char*, 6>{"f", "-f", "d", "-d", "r", "-r"};
         os << direction_strings[(int)direction] << (int)depth;
     }
+
+    inline Move Inv() const {
+        return {(Direction)((i8)direction ^ (i8)1), depth};
+    }
+
+    inline auto operator<=>(const Move&) const = default;
 };
 
 // マスの座標
@@ -195,6 +225,11 @@ struct Formula {
     inline Formula(const vector<Move>& moves)
         : moves(moves), use_facelet_changes(false), facelet_changes() {}
 
+    inline Formula(const vector<Move>& moves,
+                   const vector<FaceletChange>& facelet_changes)
+        : moves(moves), use_facelet_changes(true),
+          facelet_changes(facelet_changes) {}
+
     inline int Cost() const { return (int)moves.size(); }
 
     // f1.d0.-r0.-f1 のような形式で出力する
@@ -208,10 +243,12 @@ struct Formula {
 };
 
 // キューブ
-template <int order, int n_colors, typename ColorType> struct Cube {
+template <int order_, typename ColorType_ = ColorType6> struct Cube {
+    static constexpr auto order = order_;
+    using ColorType = ColorType_;
     enum { D1, F0, R0, F1, R1, D0 };
 
-    array<Face<order, n_colors, ColorType>, 6> faces;
+    array<Face<order, ColorType>, 6> faces;
 
     inline void Rotate(const Move& mov) {
 #define FROM_BOTTOM order - 1 - mov.depth, i
@@ -324,42 +361,61 @@ template <int order, int n_colors, typename ColorType> struct Cube {
                 Rotate(m);
     }
 
+    inline auto Get(const int face_id, const int y, const int x) const {
+        return faces[face_id].Get(y, x);
+    }
+
     inline auto Get(const FaceletPosition& facelet_position) const {
-        return faces[facelet_position.face_id].Get(facelet_position.y,
-                                                   facelet_position.x);
+        return Get(facelet_position.face_id, facelet_position.y,
+                   facelet_position.x);
+    }
+
+    inline auto Set(const int face_id, const int y, const int x,
+                    ColorType color) {
+        faces[face_id].Set(y, x, color);
     }
 
     inline void Set(const FaceletPosition& facelet_position, ColorType color) {
-        faces[facelet_position.face_id].Set(facelet_position.y,
-                                            facelet_position.x, color);
+        Set(facelet_position.face_id, facelet_position.y, facelet_position.x,
+            color);
     }
 
     inline auto ComputeFaceDiff(const Cube& rhs) const {
         // TODO: 差分計算
         auto diff = 0;
-        for (auto face_id = (i8)0; face_id < 6; face_id++)
-            for (auto y = (i8)1; y < order - 1; y++)
-                for (auto x = (i8)1; x < order - 1; x++)
-                    diff += Get({face_id, y, x}) != rhs.Get({face_id, y, x});
+        for (auto face_id = 0; face_id < 6; face_id++)
+            for (auto y = 1; y < order - 1; y++)
+                for (auto x = 1; x < order - 1; x++)
+                    diff += Get(face_id, y, x) != rhs.Get(face_id, y, x);
         return diff;
     }
 
-    inline void Print() {
+    // Kaggle フォーマットを読み取る
+    inline void Read(string& s) {
+        assert(s.size() >= 6 * order * order * 2 - 1);
+        auto i = 0;
+        for (auto face_id = (i8)0; face_id < 6; face_id++)
+            for (auto y = (i8)1; y < order - 1; y++)
+                for (auto x = (i8)1; x < order - 1; x++)
+                    Set(face_id, y, x, {s[i++] - 'A'});
+    }
+
+    inline void Print() const {
         // TODO
     }
 
-    inline void Display(ostream& os = cout) {
+    inline void Display(ostream& os = cout) const {
         for (auto y = 0; y < order; y++) {
             for (auto x = 0; x < order; x++)
                 os << ' ';
             for (auto x = 0; x < order; x++)
-                os << (char)('A' + faces[D1].Get(y, x));
+                os << faces[D1].Get(y, x);
             os << '\n';
         }
         for (auto y = 0; y < order; y++) {
             for (const auto face_id : {R1, F0, R0, F1}) {
                 for (auto x = 0; x < order; x++)
-                    os << (char)('A' + faces[face_id].Get(y, x));
+                    os << faces[face_id].Get(y, x);
             }
             os << '\n';
         }
@@ -367,7 +423,7 @@ template <int order, int n_colors, typename ColorType> struct Cube {
             for (auto x = 0; x < order; x++)
                 os << ' ';
             for (auto x = 0; x < order; x++)
-                os << (char)('A' + faces[D0].Get(y, x));
+                os << faces[D0].Get(y, x);
             os << '\n';
         }
     }
@@ -375,8 +431,8 @@ template <int order, int n_colors, typename ColorType> struct Cube {
 
 using Action = Formula;
 
-template <int order, int n_colors, typename ColorType> struct State {
-    using Cube = ::Cube<order, n_colors, ColorType>;
+template <int order, typename ColorType = ColorType6> struct State {
+    using Cube = ::Cube<order, ColorType>;
     Cube cube;
     int score;   // target との距離
     int n_moves; // これまでに回した回数
@@ -405,8 +461,8 @@ template <int order, int n_colors, typename ColorType> struct State {
     }
 };
 
-template <int order, int n_colors, typename ColorType> struct Node {
-    using State = ::State<order, n_colors, ColorType>;
+template <int order, typename ColorType = ColorType6> struct Node {
+    using State = ::State<order, ColorType>;
     State state;
     shared_ptr<Node> parent;
     Action last_action;
@@ -415,10 +471,10 @@ template <int order, int n_colors, typename ColorType> struct Node {
         : state(state), parent(parent), last_action(last_action) {}
 };
 
-template <int order, int n_colors, typename ColorType> struct BeamSearchSolver {
-    using Node = ::Node<order, n_colors, ColorType>;
-    using State = ::State<order, n_colors, ColorType>;
-    using Cube = ::Cube<order, n_colors, ColorType>;
+template <int order, typename ColorType = ColorType6> struct BeamSearchSolver {
+    using Node = ::Node<order, ColorType>;
+    using State = ::State<order, ColorType>;
+    using Cube = ::Cube<order, ColorType>;
     vector<vector<shared_ptr<Node>>> nodes;
 
     inline shared_ptr<Node> Solve(const State& initial_state,
@@ -462,8 +518,7 @@ template <int order, int n_colors, typename ColorType> struct BeamSearchSolver {
 
 void TestBeamSearch() {
     constexpr auto kOrder = 7;
-    constexpr auto kNColors = 6;
-    using Solver = BeamSearchSolver<kOrder, kNColors, i8>;
+    using Solver = BeamSearchSolver<kOrder, ColorType6>;
     using Cube = typename Solver::Cube;
     using State = typename Solver::State;
 
@@ -480,20 +535,17 @@ void TestBeamSearch() {
 
 void TestCube() {
     constexpr auto kOrder = 7;
-    constexpr auto kNColors = 6;
 
-    auto cube = Cube<kOrder, kNColors, i8>();
+    auto cube = Cube<kOrder, ColorType6>();
 
     // 初期化
-    for (auto face_id = 0; face_id < 6; face_id++)
+    for (auto face_id = (i8)0; face_id < 6; face_id++)
         for (auto y = 0; y < kOrder; y++)
-            for (auto x = 0; x < kOrder; x++)
-
-            {
+            for (auto x = 0; x < kOrder; x++) {
                 const auto color = face_id;
                 // const auto color =
                 //     face_id * 4 + (y >= kOrder / 2) * 2 + (x >= kOrder / 2);
-                cube.Set({(i8)face_id, (i8)y, (i8)x}, color);
+                cube.Set(face_id, y, x, {color});
             }
 
     // 適当に動かす
