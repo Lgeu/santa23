@@ -14,7 +14,8 @@ struct EdgeFormulaSearcher {
     Cube start_cube;
 
     EdgeFormulaSearcher(const int max_depth)
-        : max_depth(max_depth), start_cube() {
+        : max_depth(max_depth), start_cube(), results(), depth(), cube(),
+          move_history(), inner_rotations(), n_inner_rotations() {
         start_cube.Reset();
     }
 
@@ -45,10 +46,12 @@ struct EdgeFormulaSearcher {
                         table[rotated_y][rotated_x][0] = {(i8)y, (i8)x};
                         table[rotated_y][rotated_x][1] = {(i8)x,
                                                           (i8)(kOrder - 1 - y)};
-                        table[rotated_y][rotated_x][2] = {(i8)(kOrder - 1 - y),
+                        table[rotated_y][rotated_x][3] = {(i8)(kOrder - 1 - y),
                                                           (i8)(kOrder - 1 - x)};
-                        table[rotated_y][rotated_x][3] = {(i8)(kOrder - 1 - x),
+                        table[rotated_y][rotated_x][2] = {(i8)(kOrder - 1 - x),
                                                           (i8)(y)};
+                        // 2 と 3 が逆なのは、
+                        // ここでは左上->右上->右下->左下の順で代入しているため
                     }
                 }
             if constexpr (kOrder % 2 == 1) {
@@ -65,6 +68,7 @@ struct EdgeFormulaSearcher {
     }
 
     vector<Formula> results;
+    int depth;                                        // Dfs(), CheckValid()
     Cube cube;                                        // Dfs(), CheckValid()
     array<Move, 8> move_history;                      // Dfs(), CheckValid()
     array<Move, kMaxNInnerRotations> inner_rotations; // Dfs()
@@ -76,24 +80,26 @@ struct EdgeFormulaSearcher {
         if ((int)move_history.size() < 4)
             return false;
         // 最後が面の回転でない
-        if (move_history.back().depth == 0 ||
-            move_history.back().depth == Cube::order - 1)
+        if (move_history[depth - 1].depth == 0 ||
+            move_history[depth - 1].depth == Cube::order - 1)
             return false;
         // 面以外の回転の戻し残しが無い
         if (n_inner_rotations != 0)
             return false;
         for (auto face_id = 0; face_id < 5; face_id++) {
-            const auto color = cube.faces[face_id].GetIgnoringOrientation(1, 1);
+            const auto color =
+                cube.faces[face_id].GetIgnoringOrientation(1, 1).data / 4;
             for (auto y = 1; y < Cube::order - 1; y++) {
                 for (auto x = 1; x < Cube::order - 1; x++)
-                    if (cube.faces[face_id].GetIgnoringOrientation(y, x) !=
+                    if (cube.faces[face_id].GetIgnoringOrientation(y, x).data /
+                            4 !=
                         color)
                         return false;
             }
         }
         return true;
     }
-    void Dfs(const int depth = 0) {
+    void Dfs() {
         // 方針: ややこしすぎるので後で回転とか言わず全部列挙する
         if (CheckValid()) {
             const auto moves = vector<Move>(move_history.begin(),
@@ -125,11 +131,13 @@ struct EdgeFormulaSearcher {
                                 original_pos, pos};
                     }
             }
-
-            // TODO: vector にコピー
-
-            auto facelet_changes = vector<Formula::FaceletChange>{};
-            results.emplace_back(moves, facelet_changes);
+            if (n_facelet_changes != 0) {
+                // cout << n_facelet_changes << endl;
+                const auto facelet_changes = vector<Formula::FaceletChange>(
+                    facelet_changes_array.begin(),
+                    facelet_changes_array.begin() + n_facelet_changes);
+                results.emplace_back(moves, facelet_changes);
+            }
         }
         if (depth == max_depth) {
             assert(n_inner_rotations == 0);
@@ -146,7 +154,9 @@ struct EdgeFormulaSearcher {
                     const auto inv_mov = mov.Inv();
                     move_history[depth] = mov;
                     cube.Rotate(mov);
-                    Dfs(depth + 1);
+                    depth++;
+                    Dfs();
+                    depth--;
                     cube.Rotate(inv_mov);
                 }
                 //
@@ -170,7 +180,9 @@ struct EdgeFormulaSearcher {
                     inner_rotations[n_inner_rotations++] = mov;
                     move_history[depth] = mov;
                     cube.Rotate(mov);
-                    Dfs(depth + 1);
+                    depth++;
+                    Dfs();
+                    depth--;
                     cube.Rotate(inv_mov);
                     n_inner_rotations--;
                 next_move:;
@@ -205,7 +217,9 @@ struct EdgeFormulaSearcher {
                     inner_rotations[--n_inner_rotations]; // 削除
                 move_history[depth] = mov;
                 cube.Rotate(mov);
-                Dfs(depth + 1);
+                depth++;
+                Dfs();
+                depth--;
                 cube.Rotate(inv_mov);
                 inner_rotations[n_inner_rotations++] =
                     inner_rotations[idx_inner_rotations];
@@ -216,5 +230,23 @@ struct EdgeFormulaSearcher {
 };
 
 void SearchEdgeFormula() {
+    auto s = EdgeFormulaSearcher(4);
+    const auto results = s.Search();
+    cout << results.size() << endl;
+    for (const auto& formula : results) {
+        formula.Print();
+        cout << "  " << formula.facelet_changes.size();
+        // for (const auto [from, to] : formula.facelet_changes) {
+        //     cout << " " << (int)from.face_id << (int)from.y << (int)from.x
+        //          << "->" << (int)to.face_id << (int)to.y << (int)to.x;
+        // }
+        cout << endl;
+    }
+}
+
+int main() {
+    SearchEdgeFormula();
     //
 }
+
+// clang++ -std=c++20 -Wall -Wextra -O3 search_edge_formula.cpp

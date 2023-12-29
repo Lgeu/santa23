@@ -305,10 +305,10 @@ template <int order_, typename ColorType_ = ColorType6> struct Cube {
     inline void Reset() {
         if constexpr (is_same_v<ColorType, ColorType6>) {
             for (auto face_id = 0; face_id < 6; face_id++)
-                faces[face_id].Reset(face_id);
+                faces[face_id].Reset(ColorType{(i8)face_id});
         } else if constexpr (is_same_v<ColorType, ColorType24>) {
             for (auto face_id = 0; face_id < 6; face_id++)
-                faces[face_id].Reset(face_id * 4);
+                faces[face_id].Reset(ColorType{(i8)(face_id * 4)});
         } else {
             static_assert([] { return false; }());
         }
@@ -642,10 +642,10 @@ void TestCube() {
     }
 }
 
-int main() {
-    // TestCube();
-    TestBeamSearch();
-}
+// int main() {
+//     // TestCube();
+//     TestBeamSearch();
+// }
 
 // clang++ -std=c++20 -Wall -Wextra -O3 cube.cpp
 // ./a.out
