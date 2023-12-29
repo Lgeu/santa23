@@ -1,32 +1,75 @@
 #include "cube.cpp"
 #include <algorithm>
 #include <numeric>
-#include <type_traits>
 
 using std::iota;
-using std::is_same_v;
 using std::sort;
 
 struct EdgeFormulaSearcher {
     static constexpr auto kOrder = 5;
     static constexpr auto kMaxNInnerRotations = 3;
 
-    using Cube = ::Cube<kOrder>;
+    using Cube = ::Cube<kOrder, ColorType24>;
     int max_depth;
-    vector<Formula> results;
+    Cube start_cube;
 
-    EdgeFormulaSearcher(const int max_depth) : max_depth(max_depth) {}
+    EdgeFormulaSearcher(const int max_depth)
+        : max_depth(max_depth), start_cube() {
+        start_cube.Reset();
+    }
 
     auto Search() {
         results.clear();
+        cube = start_cube;
         Dfs();
         return results;
     }
 
+    auto ComputeOriginalFaceletPosition(const int y, const int x,
+                                        const ColorType24 color) const {
+        // color / 4 で面が決まる
+        // color % 4 で象限が決まる
+        // y, x でその中の位置がきまる
+        static constexpr auto table = []() {
+            struct Pos {
+                i8 y, x;
+            };
+            auto table = array<array<array<Pos, 4>, kOrder>, kOrder>();
+            for (auto y = 0; y < kOrder / 2; y++)
+                for (auto x = 0; x < (kOrder + 1) / 2; x++) {
+                    for (auto [rotated_y, rotated_x] :
+                         {array<int, 2>{y, x},
+                          {x, kOrder - 1 - y},
+                          {kOrder - 1 - y, kOrder - 1 - x},
+                          {kOrder - 1 - x, y}}) {
+                        table[rotated_y][rotated_x][0] = {(i8)y, (i8)x};
+                        table[rotated_y][rotated_x][1] = {(i8)x,
+                                                          (i8)(kOrder - 1 - y)};
+                        table[rotated_y][rotated_x][2] = {(i8)(kOrder - 1 - y),
+                                                          (i8)(kOrder - 1 - x)};
+                        table[rotated_y][rotated_x][3] = {(i8)(kOrder - 1 - x),
+                                                          (i8)(y)};
+                    }
+                }
+            if constexpr (kOrder % 2 == 1) {
+                table[kOrder / 2][kOrder / 2][0] = {(i8)(kOrder / 2),
+                                                    (i8)(kOrder / 2)};
+                table[kOrder / 2][kOrder / 2][1] = {(i8)-100, (i8)-100};
+                table[kOrder / 2][kOrder / 2][2] = {(i8)-100, (i8)-100};
+                table[kOrder / 2][kOrder / 2][3] = {(i8)-100, (i8)-100};
+            }
+            return table;
+        }();
+        const auto t = table[y][x][color.data % 4];
+        return FaceletPosition{(i8)(color.data / 4), t.y, t.x};
+    }
+
+    vector<Formula> results;
     Cube cube;                                        // Dfs(), CheckValid()
     array<Move, 8> move_history;                      // Dfs(), CheckValid()
     array<Move, kMaxNInnerRotations> inner_rotations; // Dfs()
     int n_inner_rotations;                            // Dfs(), CheckValid()
+
     // cube の面が揃っているかチェックする
     bool CheckValid() const {
         // 手筋の長さは 4 以上
@@ -53,21 +96,37 @@ struct EdgeFormulaSearcher {
     void Dfs(const int depth = 0) {
         // 方針: ややこしすぎるので後で回転とか言わず全部列挙する
         if (CheckValid()) {
-            // TODO: 変更箇所と変化量を確認
             const auto moves = vector<Move>(move_history.begin(),
                                             move_history.begin() + depth);
             auto facelet_changes_array =
                 array<Formula::FaceletChange, (Cube::order - 2) * 24>();
             auto n_facelet_changes = 0;
             for (auto face_id = 0; face_id < 6; face_id++) {
-                for (const auto y : {0, Cube::order - 1}) {
+                for (const auto y : {0, Cube::order - 1})
                     for (auto x = 1; x < Cube::order - 1; x++) {
-                        static_assert(is_same_v<Cube::ColorType, ColorType6>);
-                        cube.Get(face_id, y, x);
+                        const auto pos =
+                            FaceletPosition{(i8)face_id, (i8)y, (i8)x};
+                        const auto color = cube.Get(pos);
+                        auto original_pos =
+                            ComputeOriginalFaceletPosition(y, x, color);
+                        if (pos != original_pos)
+                            facelet_changes_array[n_facelet_changes++] = {
+                                original_pos, pos};
                     }
-                }
-                for ()
+                for (const auto x : {0, Cube::order - 1})
+                    for (auto y = 1; y < Cube::order - 1; y++) {
+                        const auto pos =
+                            FaceletPosition{(i8)face_id, (i8)y, (i8)x};
+                        const auto color = cube.Get(pos);
+                        auto original_pos =
+                            ComputeOriginalFaceletPosition(y, x, color);
+                        if (pos != original_pos)
+                            facelet_changes_array[n_facelet_changes++] = {
+                                original_pos, pos};
+                    }
             }
+
+            // TODO: vector にコピー
 
             auto facelet_changes = vector<Formula::FaceletChange>{};
             results.emplace_back(moves, facelet_changes);

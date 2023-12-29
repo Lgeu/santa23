@@ -4,12 +4,14 @@
 #include <memory>
 #include <ostream>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 using std::array;
 using std::cerr;
 using std::cout;
 using std::endl;
+using std::is_same_v;
 using std::make_shared;
 using std::ostream;
 using std::shared_ptr;
@@ -62,6 +64,20 @@ struct ColorType6 {
     }
 };
 
+struct ColorType24 {
+    static constexpr auto kNColors = 24;
+    i8 data;
+
+    inline auto operator<=>(const ColorType24&) const = default;
+
+    inline void Print(ostream& os) const { os << (char)('A' + data); }
+
+    friend auto& operator<<(ostream& os, const ColorType24 t) {
+        t.Print(os);
+        return os;
+    }
+};
+
 template <int order, typename ColorType_ = ColorType6, bool use_hash = false>
 struct Face {
     using ColorType = ColorType_;
@@ -92,10 +108,12 @@ struct Face {
         return make_shared<RNT>(seed);
     }
 
+    // 0 で初期化
     inline Face()
         requires(!use_hash)
         : facelets(), orientation(), hash_value(), rnt() {}
 
+    // 0 で初期化
     inline Face(const RNT& rnt)
         requires use_hash
         : facelets(), orientation(), hash_value(), rnt(rnt) {
@@ -113,6 +131,38 @@ struct Face {
                         ((y * order) + x) * ColorType::kNColors + color);
                 facelets[y][x] = color;
             }
+    }
+
+    // ColorType に応じて初期化
+    void Reset(const ColorType start_color) {
+        if constexpr (use_hash)
+            hash_value = 0ull;
+        orientation = 0;
+        if constexpr (is_same_v<ColorType, ColorType6>) {
+            Fill(start_color);
+        } else if constexpr (is_same_v<ColorType, ColorType24>) {
+            assert(start_color.data % 4 == 0);
+            for (auto y = 0; y < order; y++)
+                for (auto x = 0; x < order; x++) {
+                    // AAB
+                    // CAB
+                    // CDD
+                    const auto color = ColorType{
+                        (i8)(start_color.data +
+                             (y < order / 2 && x < (order + 1) / 2          ? 0
+                              : y < (order + 1) / 2 && x >= (order + 1) / 2 ? 1
+                              : y >= order / 2 && x < order / 2             ? 2
+                              : y >= (order + 1) / 2 && x >= order / 2      ? 3
+                                                                       : 0))};
+                    if constexpr (use_hash)
+                        hash_value ^=
+                            rnt->Get(((y * order) + x) * ColorType::kNColors +
+                                     color.data);
+                    facelets[y][x] = color;
+                }
+        } else {
+            static_assert([] { return false; }());
+        }
     }
 
     // 時計回りに step * 90 度回転
@@ -137,6 +187,7 @@ struct Face {
             return facelets[order - 1 - x][y];
         default:
             assert(false);
+            return {};
         }
     }
 
@@ -207,6 +258,7 @@ struct Move {
 // マスの座標
 struct FaceletPosition {
     i8 face_id, y, x;
+    inline auto operator<=>(const FaceletPosition&) const = default;
 };
 
 // 手筋
@@ -249,6 +301,18 @@ template <int order_, typename ColorType_ = ColorType6> struct Cube {
     enum { D1, F0, R0, F1, R1, D0 };
 
     array<Face<order, ColorType>, 6> faces;
+
+    inline void Reset() {
+        if constexpr (is_same_v<ColorType, ColorType6>) {
+            for (auto face_id = 0; face_id < 6; face_id++)
+                faces[face_id].Reset(face_id);
+        } else if constexpr (is_same_v<ColorType, ColorType24>) {
+            for (auto face_id = 0; face_id < 6; face_id++)
+                faces[face_id].Reset(face_id * 4);
+        } else {
+            static_assert([] { return false; }());
+        }
+    }
 
     inline void Rotate(const Move& mov) {
 #define FROM_BOTTOM order - 1 - mov.depth, i
