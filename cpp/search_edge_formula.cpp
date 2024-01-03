@@ -74,18 +74,32 @@ struct EdgeFormulaSearcher {
     array<Move, kMaxNInnerRotations> inner_rotations; // Dfs()
     int n_inner_rotations;                            // Dfs(), CheckValid()
 
-    // cube の面が揃っているかチェックする
+    // 有効な手筋かチェックする
     bool CheckValid() const {
         // 手筋の長さは 4 以上
-        if ((int)move_history.size() < 4)
-            return false;
-        // 最後が面の回転でない
-        if (move_history[depth - 1].depth == 0 ||
-            move_history[depth - 1].depth == Cube::order - 1)
+        if (depth < 4)
             return false;
         // 面以外の回転の戻し残しが無い
         if (n_inner_rotations != 0)
             return false;
+        // 最後が面の回転でない (次の項目の下位互換なので無くても良い)
+        if (move_history[depth - 1].IsFaceRotation<Cube::order>())
+            return false;
+        // 面の回転の後には、別の軸の回転がある
+        {
+            auto last_face_roration_axis = (i8)-1;
+            for (auto d = 1; d < depth; d++) {
+                const auto mov = move_history[d];
+                const auto axis = (i8)mov.GetAxis();
+                if (mov.IsFaceRotation<Cube::order>())
+                    last_face_roration_axis = axis;
+                else if (axis != last_face_roration_axis)
+                    last_face_roration_axis = (i8)-1;
+            }
+            if (last_face_roration_axis != (i8)-1)
+                return false;
+        }
+        // 面が揃っている
         for (auto face_id = 0; face_id < 5; face_id++) {
             const auto color =
                 cube.faces[face_id].GetIgnoringOrientation(1, 1).data / 4;
@@ -144,7 +158,7 @@ struct EdgeFormulaSearcher {
             return;
         }
 
-        // TODO: 操作を即戻すのを避ける
+        // TODO: IDDFS にして、ハッシュを使って手順前後みたいな重複を除去？
 
         // 面の回転 (初手以外)
         if (depth != 0 && n_inner_rotations < max_depth - depth) {
@@ -152,14 +166,23 @@ struct EdgeFormulaSearcher {
                 for (auto direction = (i8)0; direction < 6; direction++) {
                     const auto mov = Move{(Move::Direction)direction, i};
                     const auto inv_mov = mov.Inv();
+                    for (auto d = depth - 1;; d--) {
+                        // 初手まで遡っても他の軸の回転が無いものはだめ
+                        // 他の軸の回転を挟まずに戻すのはだめ
+                        if (d < 0 || inv_mov == move_history[d])
+                            goto next_face_move;
+                        // 他の軸の回転が見つかれば良し
+                        else if (mov.GetAxis() != move_history[d].GetAxis())
+                            break;
+                    }
                     move_history[depth] = mov;
                     cube.Rotate(mov);
                     depth++;
                     Dfs();
                     depth--;
                     cube.Rotate(inv_mov);
+                next_face_move:;
                 }
-                //
             }
         }
 
@@ -175,7 +198,7 @@ struct EdgeFormulaSearcher {
                          idx_inner_rotations < n_inner_rotations;
                          idx_inner_rotations++) {
                         if (inner_rotations[idx_inner_rotations] == inv_mov)
-                            goto next_move;
+                            goto next_incremental_inner_rotation_move;
                     }
                     inner_rotations[n_inner_rotations++] = mov;
                     move_history[depth] = mov;
@@ -185,13 +208,14 @@ struct EdgeFormulaSearcher {
                     depth--;
                     cube.Rotate(inv_mov);
                     n_inner_rotations--;
-                next_move:;
+                next_incremental_inner_rotation_move:;
                 }
             }
         }
 
         // 面以外の回転であって、面の変化を戻すもの
-        if (n_inner_rotations >= 1 && n_inner_rotations <= max_depth - depth) {
+        if (depth >= 2 && n_inner_rotations >= 1 &&
+            n_inner_rotations <= max_depth - depth) {
             auto sorted_inner_rotations_indices =
                 array<int, kMaxNInnerRotations>();
             iota(sorted_inner_rotations_indices.begin(),
@@ -209,10 +233,19 @@ struct EdgeFormulaSearcher {
                         sorted_inner_rotations_indices[i - 1];
                     if (inner_rotations[idx_inner_rotations] ==
                         inner_rotations[last_idx_inner_rotations])
-                        continue;
+                        continue; // 重複を除去
                 }
                 const auto inv_mov = inner_rotations[idx_inner_rotations];
                 const auto mov = inv_mov.Inv();
+                for (auto d = depth - 1;; d--) {
+                    assert(d >= 0);
+                    // 他の軸の回転を挟まずに戻すのはだめ
+                    if (inv_mov == move_history[d])
+                        goto next_decremental_inner_rotation_move;
+                    // 他の軸の回転が見つかれば良し
+                    else if (mov.GetAxis() != move_history[d].GetAxis())
+                        break;
+                }
                 inner_rotations[idx_inner_rotations] =
                     inner_rotations[--n_inner_rotations]; // 削除
                 move_history[depth] = mov;
@@ -224,22 +257,25 @@ struct EdgeFormulaSearcher {
                 inner_rotations[n_inner_rotations++] =
                     inner_rotations[idx_inner_rotations];
                 inner_rotations[idx_inner_rotations] = inv_mov;
+            next_decremental_inner_rotation_move:;
             }
         }
     }
 };
 
 void SearchEdgeFormula() {
-    auto s = EdgeFormulaSearcher(4);
+    auto s = EdgeFormulaSearcher(5);
     const auto results = s.Search();
     cout << results.size() << endl;
     for (const auto& formula : results) {
         formula.Print();
         cout << "  " << formula.facelet_changes.size();
-        // for (const auto [from, to] : formula.facelet_changes) {
-        //     cout << " " << (int)from.face_id << (int)from.y << (int)from.x
-        //          << "->" << (int)to.face_id << (int)to.y << (int)to.x;
-        // }
+        if (0) {
+            for (const auto [from, to] : formula.facelet_changes) {
+                cout << " " << (int)from.face_id << (int)from.y << (int)from.x
+                     << "->" << (int)to.face_id << (int)to.y << (int)to.x;
+            }
+        }
         cout << endl;
     }
 }
