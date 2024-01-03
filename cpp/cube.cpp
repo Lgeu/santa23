@@ -58,6 +58,16 @@ struct ColorType6 {
 
     inline void Print(ostream& os) const { os << (char)('A' + data); }
 
+    inline void Display(ostream& os) const {
+        // 青、赤、白、橙 (マゼンタ)、黄、緑
+        static constexpr auto kColors = array<const char*, 6>{
+            "\e[44m", "\e[41m", "\e[47m", "\e[45m", "\e[43m", "\e[42m",
+        };
+        os << kColors[data];
+        Print(os);
+        os << "\e[0m";
+    }
+
     friend auto& operator<<(ostream& os, const ColorType6 t) {
         t.Print(os);
         return os;
@@ -71,6 +81,16 @@ struct ColorType24 {
     inline auto operator<=>(const ColorType24&) const = default;
 
     inline void Print(ostream& os) const { os << (char)('A' + data); }
+
+    inline void Display(ostream& os) const {
+        // 青、赤、白、橙 (マゼンタ)、黄、緑
+        static constexpr auto kColors = array<const char*, 6>{
+            "\e[44m", "\e[41m", "\e[47m", "\e[45m", "\e[43m", "\e[42m",
+        };
+        os << kColors[data / 4];
+        Print(os);
+        os << "\e[0m";
+    }
 
     friend auto& operator<<(ostream& os, const ColorType24 t) {
         t.Print(os);
@@ -237,10 +257,15 @@ struct Face {
 // 手 (90 度回転)
 struct Move {
     enum struct Direction : i8 { F, Fp, D, Dp, R, Rp }; // p は反時計回り
+    enum struct Axis : i8 { F, D, R };
     Direction direction;
     i8 depth;
 
     inline bool IsClockWise() const { return ((int)direction & 1) == 0; }
+
+    template <int order> inline bool IsFaceRotation() const {
+        return depth == 0 || depth == order - 1;
+    }
 
     inline void Print(ostream& os = cout) const {
         static constexpr auto direction_strings =
@@ -252,6 +277,8 @@ struct Move {
         return {(Direction)((i8)direction ^ (i8)1), depth};
     }
 
+    inline Axis GetAxis() const { return (Axis)((int)direction >> 1); }
+
     inline auto operator<=>(const Move&) const = default;
 };
 
@@ -260,6 +287,8 @@ struct FaceletPosition {
     i8 face_id, y, x;
     inline auto operator<=>(const FaceletPosition&) const = default;
 };
+
+template <int order_, typename ColorType_> struct Cube;
 
 // 手筋
 struct Formula {
@@ -290,6 +319,27 @@ struct Formula {
             if (i != 0)
                 os << '.';
             moves[i].Print(os);
+        }
+    }
+
+    template <int order, typename ColorType>
+    inline void Display(ostream& os = cout) const {
+        auto cube = Cube<order, ColorType>();
+        cube.Reset();
+        cube.Display(os);
+        for (auto idx_moves = 0; idx_moves < (int)moves.size(); idx_moves++) {
+            for (auto i = 0; i < (int)moves.size(); i++) {
+                if (i != 0)
+                    os << '.';
+                if (i == idx_moves)
+                    os << '[';
+                moves[i].Print(os);
+                if (i == idx_moves)
+                    os << ']';
+            }
+            os << "\n";
+            cube.Rotate(moves[idx_moves]);
+            cube.Display(os);
         }
     }
 };
@@ -470,24 +520,25 @@ template <int order_, typename ColorType_ = ColorType6> struct Cube {
 
     inline void Display(ostream& os = cout) const {
         for (auto y = 0; y < order; y++) {
-            for (auto x = 0; x < order; x++)
+            for (auto x = 0; x < order + 1; x++)
                 os << ' ';
             for (auto x = 0; x < order; x++)
-                os << faces[D1].Get(y, x);
+                faces[D1].Get(y, x).Display(os);
             os << '\n';
         }
         for (auto y = 0; y < order; y++) {
             for (const auto face_id : {R1, F0, R0, F1}) {
                 for (auto x = 0; x < order; x++)
-                    os << faces[face_id].Get(y, x);
+                    faces[face_id].Get(y, x).Display(os);
+                os << ' ';
             }
             os << '\n';
         }
         for (auto y = 0; y < order; y++) {
-            for (auto x = 0; x < order; x++)
+            for (auto x = 0; x < order + 1; x++)
                 os << ' ';
             for (auto x = 0; x < order; x++)
-                os << faces[D0].Get(y, x);
+                faces[D0].Get(y, x).Display(os);
             os << '\n';
         }
     }
@@ -600,18 +651,6 @@ void TestBeamSearch() {
 void TestCube() {
     constexpr auto kOrder = 7;
 
-    auto cube = Cube<kOrder, ColorType6>();
-
-    // 初期化
-    for (auto face_id = (i8)0; face_id < 6; face_id++)
-        for (auto y = 0; y < kOrder; y++)
-            for (auto x = 0; x < kOrder; x++) {
-                const auto color = face_id;
-                // const auto color =
-                //     face_id * 4 + (y >= kOrder / 2) * 2 + (x >= kOrder / 2);
-                cube.Set(face_id, y, x, {color});
-            }
-
     // 適当に動かす
     // const auto moves = {
     //     Move{Move::Direction::D, (i8)1},
@@ -619,36 +658,42 @@ void TestCube() {
     //     Move{Move::Direction::R, (i8)3},
     // };
 
+    // 謎手筋
+    // const auto moves = {
+    //     Move{Move::Direction::F, (i8)2},  //
+    //     Move{Move::Direction::R, (i8)0},  //
+    //     Move{Move::Direction::Fp, (i8)2}, //
+    //     Move{Move::Direction::D, (i8)6},  //
+    //     Move{Move::Direction::R, (i8)0},  //
+    //     Move{Move::Direction::Fp, (i8)4}, //
+    //     Move{Move::Direction::D, (i8)6},  //
+    //     Move{Move::Direction::F, (i8)4},  //
+    // };
+
+    // 辺の手筋
     const auto moves = {
-        Move{Move::Direction::F, (i8)2},  //
-        Move{Move::Direction::R, (i8)0},  //
-        Move{Move::Direction::Fp, (i8)2}, //
-        Move{Move::Direction::D, (i8)6},  //
-        Move{Move::Direction::R, (i8)0},  //
-        Move{Move::Direction::Fp, (i8)4}, //
-        Move{Move::Direction::D, (i8)6},  //
-        Move{Move::Direction::F, (i8)4},  //
+        Move{Move::Direction::F, (i8)1},  //
+        Move{Move::Direction::D, (i8)0},  //
+        Move{Move::Direction::F, (i8)0},  //
+        Move{Move::Direction::Dp, (i8)0}, //
+        Move{Move::Direction::Fp, (i8)1}, //
     };
+
     const auto formula = Formula(moves);
     formula.Print();
     cout << endl;
-
-    cube.Display();
-    for (const auto& mov : moves) {
-        mov.Print();
-        cout << endl;
-        cube.Rotate(mov);
-        cube.Display();
-    }
+    formula.Display<kOrder, ColorType6>();
 }
+
+// clang++ -std=c++20 -Wall -Wextra -O3 cube.cpp -DTEST_CUBE
+#ifdef TEST_CUBE
+int main() { TestCube(); }
+#endif
 
 // int main() {
 //     // TestCube();
 //     TestBeamSearch();
 // }
-
-// clang++ -std=c++20 -Wall -Wextra -O3 cube.cpp
-// ./a.out
 
 /*
 メモ
