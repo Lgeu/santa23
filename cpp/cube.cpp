@@ -56,16 +56,23 @@ struct ColorType6 {
 
     inline auto operator<=>(const ColorType6&) const = default;
 
-    inline void Print(ostream& os) const { os << (char)('A' + data); }
+    inline void Print(ostream& os) const {
+        if (data < 0)
+            os << ' ';
+        else
+            os << (char)('A' + data);
+    }
 
     inline void Display(ostream& os) const {
         // 青、赤、白、橙 (マゼンタ)、黄、緑
         static constexpr auto kColors = array<const char*, 6>{
             "\e[44m", "\e[41m", "\e[47m", "\e[45m", "\e[43m", "\e[42m",
         };
-        os << kColors[data];
+        if (data >= 0)
+            os << kColors[data];
         Print(os);
-        os << "\e[0m";
+        if (data >= 0)
+            os << "\e[0m";
     }
 
     friend auto& operator<<(ostream& os, const ColorType6 t) {
@@ -290,6 +297,14 @@ struct FaceletPosition {
 
 template <int order_, typename ColorType_> struct Cube;
 
+template <class T>
+concept Cubeish = requires(T& x, Move mov, ostream os) {
+                      x.Reset();
+                      x.Rotate(mov);
+                      x.Display();
+                      x.Display(os);
+                  };
+
 // 手筋
 struct Formula {
     struct FaceletChange {
@@ -322,9 +337,8 @@ struct Formula {
         }
     }
 
-    template <int order, typename ColorType>
-    inline void Display(ostream& os = cout) const {
-        auto cube = Cube<order, ColorType>();
+    template <Cubeish CubeType> inline void Display(ostream& os = cout) const {
+        auto cube = CubeType();
         cube.Reset();
         cube.Display(os);
         for (auto idx_moves = 0; idx_moves < (int)moves.size(); idx_moves++) {
@@ -505,16 +519,19 @@ template <int order_, typename ColorType_ = ColorType6> struct Cube {
     }
 
     // Kaggle フォーマットを読み取る
-    inline void Read(string& s) {
+    inline void Read(const string& s) {
         assert(s.size() >= 6 * order * order * 2 - 1);
         auto i = 0;
-        for (auto face_id = (i8)0; face_id < 6; face_id++)
-            for (auto y = (i8)1; y < order - 1; y++)
-                for (auto x = (i8)1; x < order - 1; x++)
-                    Set(face_id, y, x, {s[i++] - 'A'});
+        for (auto face_id = 0; face_id < 6; face_id++)
+            for (auto y = 0; y < order; y++)
+                for (auto x = 0; x < order; x++) {
+                    Set(face_id, y, x, {s[i] - 'A'});
+                    i += 2;
+                }
     }
 
     inline void Print() const {
+        assert(false);
         // TODO
     }
 
@@ -631,7 +648,7 @@ template <int order, typename ColorType = ColorType6> struct BeamSearchSolver {
     }
 };
 
-void TestBeamSearch() {
+[[maybe_unused]] static void TestBeamSearch() {
     constexpr auto kOrder = 7;
     using Solver = BeamSearchSolver<kOrder, ColorType6>;
     using Cube = typename Solver::Cube;
@@ -648,10 +665,9 @@ void TestBeamSearch() {
     // TODO: 結果を表示する
 }
 
-void TestCube() {
-    constexpr auto kOrder = 7;
-
+[[maybe_unused]] static void TestCube() {
     // 適当に動かす
+    // constexpr auto kOrder = 4;
     // const auto moves = {
     //     Move{Move::Direction::D, (i8)1},
     //     Move{Move::Direction::Fp, (i8)0},
@@ -659,6 +675,7 @@ void TestCube() {
     // };
 
     // 謎手筋
+    // constexpr auto kOrder = 7;
     // const auto moves = {
     //     Move{Move::Direction::F, (i8)2},  //
     //     Move{Move::Direction::R, (i8)0},  //
@@ -671,29 +688,35 @@ void TestCube() {
     // };
 
     // 辺の手筋
+    // constexpr auto kOrder = 5;
+    // const auto moves = {
+    //     Move{Move::Direction::F, (i8)1},  //
+    //     Move{Move::Direction::D, (i8)0},  //
+    //     Move{Move::Direction::F, (i8)0},  //
+    //     Move{Move::Direction::Dp, (i8)0}, //
+    //     Move{Move::Direction::Fp, (i8)1}, //
+    // };
+
+    // 辺の手筋 2
+    constexpr auto kOrder = 5;
     const auto moves = {
-        Move{Move::Direction::F, (i8)1},  //
+        Move{Move::Direction::F, (i8)2},  //
         Move{Move::Direction::D, (i8)0},  //
         Move{Move::Direction::F, (i8)0},  //
-        Move{Move::Direction::Dp, (i8)0}, //
-        Move{Move::Direction::Fp, (i8)1}, //
+        Move{Move::Direction::D, (i8)0},  //
+        Move{Move::Direction::Fp, (i8)2}, //
     };
 
     const auto formula = Formula(moves);
     formula.Print();
     cout << endl;
-    formula.Display<kOrder, ColorType6>();
+    formula.Display<Cube<kOrder, ColorType6>>();
 }
 
 // clang++ -std=c++20 -Wall -Wextra -O3 cube.cpp -DTEST_CUBE
 #ifdef TEST_CUBE
 int main() { TestCube(); }
 #endif
-
-// int main() {
-//     // TestCube();
-//     TestBeamSearch();
-// }
 
 /*
 メモ
