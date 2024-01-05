@@ -3,6 +3,7 @@
 #include <iostream>
 #include <memory>
 #include <ostream>
+#include <sstream>
 #include <string>
 #include <type_traits>
 #include <vector>
@@ -11,9 +12,12 @@ using std::array;
 using std::cerr;
 using std::cout;
 using std::endl;
+using std::getline;
 using std::is_same_v;
+using std::istringstream;
 using std::make_shared;
 using std::ostream;
+using std::same_as;
 using std::shared_ptr;
 using std::string;
 using std::vector;
@@ -298,12 +302,18 @@ struct FaceletPosition {
 template <int order_, typename ColorType_> struct Cube;
 
 template <class T>
-concept Cubeish = requires(T& x, Move mov, ostream os) {
-                      x.Reset();
-                      x.Rotate(mov);
-                      x.Display();
-                      x.Display(os);
-                  };
+concept Cubeish =
+    requires(T& x, Move mov, ostream os) {
+        x.Reset();
+        x.Rotate(mov);
+        x.Display();
+        x.Display(os);
+        T::AllFaceletPositions();
+        {
+            T::ComputeOriginalFaceletPosition(0, 0, typename T::ColorType())
+            } -> same_as<FaceletPosition>;
+        { T::order } -> same_as<const int&>;
+    };
 
 // 手筋
 struct Formula {
@@ -326,7 +336,59 @@ struct Formula {
         : moves(moves), use_facelet_changes(true),
           facelet_changes(facelet_changes) {}
 
+    // f1.d0.-r0.-f1 のような形式を読み取る
+    inline Formula(const string& s)
+        : moves(), use_facelet_changes(), facelet_changes() {
+        assert(s.size() >= 2);
+        auto iss = istringstream(s);
+        string token;
+        while (getline(iss, token, '.')) {
+            bool inv = false;
+            if (token[0] == '-') {
+                inv = true;
+                token = token.substr(1);
+            }
+            Move::Direction direction;
+            switch (token[0]) {
+            case 'f':
+                direction = Move::Direction::F;
+                break;
+            case 'd':
+                direction = Move::Direction::D;
+                break;
+            case 'r':
+                direction = Move::Direction::R;
+                break;
+            default:
+                assert(false);
+                direction = {};
+            }
+            direction = (Move::Direction)((int)direction | (int)inv);
+            const auto depth = (i8)stoi(token.substr(1));
+            moves.push_back({direction, depth});
+        }
+    }
+
     inline int Cost() const { return (int)moves.size(); }
+
+    template <Cubeish CubeType> inline void EnableFaceletChanges() {
+        if (use_facelet_changes)
+            return;
+        use_facelet_changes = true;
+        facelet_changes.clear();
+        auto cube = CubeType();
+        cube.Reset();
+        for (const auto& mov : moves)
+            cube.Rotate(mov);
+
+        for (const FaceletPosition pos : CubeType::AllFaceletPositions()) {
+            const auto color = cube.Get(pos);
+            const auto original_pos =
+                CubeType::ComputeOriginalFaceletPosition(pos.y, pos.x, color);
+            if (pos != original_pos)
+                facelet_changes.push_back({original_pos, pos});
+        }
+    }
 
     // f1.d0.-r0.-f1 のような形式で出力する
     inline void Print(ostream& os = cout) const {
@@ -489,6 +551,16 @@ template <int order_, typename ColorType_ = ColorType6> struct Cube {
                 Rotate(m);
     }
 
+    inline static constexpr auto AllFaceletPositions() {
+        array<FaceletPosition, order * order * 6> positions;
+        auto i = 0;
+        for (auto face_id = 0; face_id < 6; face_id++)
+            for (auto y = 0; y < order; y++)
+                for (auto x = 0; x < order; x++)
+                    positions[i++] = {(i8)face_id, (i8)y, (i8)x};
+        return positions;
+    }
+
     inline auto Get(const int face_id, const int y, const int x) const {
         return faces[face_id].Get(y, x);
     }
@@ -506,6 +578,58 @@ template <int order_, typename ColorType_ = ColorType6> struct Cube {
     inline void Set(const FaceletPosition& facelet_position, ColorType color) {
         Set(facelet_position.face_id, facelet_position.y, facelet_position.x,
             color);
+    }
+
+    static FaceletPosition
+    ComputeOriginalFaceletPosition(const int y, const int x,
+                                   const ColorType color) {
+        if constexpr (is_same_v<ColorType, ColorType24>) {
+            // color / 4 で面が決まる
+            // color % 4 で象限が決まる
+            // y, x でその中の位置がきまる
+            static constexpr auto table = []() {
+                struct Pos {
+                    i8 y, x;
+                };
+                auto table = array<array<array<Pos, 4>, order>, order>();
+                for (auto y = 0; y < order / 2; y++)
+                    for (auto x = 0; x < (order + 1) / 2; x++) {
+                        for (auto [rotated_y, rotated_x] :
+                             {array<int, 2>{y, x},
+                              {x, order - 1 - y},
+                              {order - 1 - y, order - 1 - x},
+                              {order - 1 - x, y}}) {
+                            table[rotated_y][rotated_x][0] = {(i8)y, (i8)x};
+                            table[rotated_y][rotated_x][1] = {
+                                (i8)x, (i8)(order - 1 - y)};
+                            table[rotated_y][rotated_x][3] = {
+                                (i8)(order - 1 - y), (i8)(order - 1 - x)};
+                            table[rotated_y][rotated_x][2] = {
+                                (i8)(order - 1 - x), (i8)(y)};
+                            // 2 と 3 が逆なのは、
+                            // ここでは左上->右上->右下->左下の順で代入しているため
+                        }
+                    }
+                if constexpr (order % 2 == 1) {
+                    table[order / 2][order / 2][0] = {(i8)(order / 2),
+                                                      (i8)(order / 2)};
+                    table[order / 2][order / 2][1] = {(i8)-100, (i8)-100};
+                    table[order / 2][order / 2][2] = {(i8)-100, (i8)-100};
+                    table[order / 2][order / 2][3] = {(i8)-100, (i8)-100};
+                }
+                return table;
+            }();
+            const auto t = table[y][x][color.data % 4];
+            return {(i8)(color.data / 4), t.y, t.x};
+        } else if constexpr (
+            is_same_v<decltype(color.template ComputeOriginalFaceletPosition<
+                               Cube>(y, x)),
+                      FaceletPosition>) {
+            // ColorType 側に処理を移譲
+            return color.template ComputeOriginalFaceletPosition<Cube>(y, x);
+        } else {
+            static_assert([] { return false; }());
+        }
     }
 
     inline auto ComputeFaceDiff(const Cube& rhs) const {
@@ -616,7 +740,7 @@ template <int order, typename ColorType = ColorType6> struct BeamSearchSolver {
 
         nodes.resize(1);
         nodes[0].push_back(
-            make_shared<Node>(initial_state, nullptr, Action({})));
+            make_shared<Node>(initial_state, nullptr, Action({Move{}})));
         for (auto current_cost = 0; current_cost < 100000; current_cost++) {
             for (const auto& node : nodes[current_cost]) {
                 if (node->state.score == 0) {

@@ -1,15 +1,20 @@
 #include "cube.cpp"
+
 #include <algorithm>
+#include <format>
+#include <fstream>
 #include <numeric>
 
+using std::format;
+using std::ifstream;
 using std::iota;
+using std::ofstream;
 using std::sort;
 
-struct EdgeFormulaSearcher {
-    static constexpr auto kOrder = 5;
+template <int order> struct EdgeFormulaSearcher {
     static constexpr auto kMaxNInnerRotations = 3;
 
-    using Cube = ::Cube<kOrder, ColorType24>;
+    using Cube = ::Cube<order, ColorType24>;
     int max_depth;
     Cube start_cube;
 
@@ -24,47 +29,6 @@ struct EdgeFormulaSearcher {
         cube = start_cube;
         Dfs();
         return results;
-    }
-
-    auto ComputeOriginalFaceletPosition(const int y, const int x,
-                                        const ColorType24 color) const {
-        // color / 4 で面が決まる
-        // color % 4 で象限が決まる
-        // y, x でその中の位置がきまる
-        static constexpr auto table = []() {
-            struct Pos {
-                i8 y, x;
-            };
-            auto table = array<array<array<Pos, 4>, kOrder>, kOrder>();
-            for (auto y = 0; y < kOrder / 2; y++)
-                for (auto x = 0; x < (kOrder + 1) / 2; x++) {
-                    for (auto [rotated_y, rotated_x] :
-                         {array<int, 2>{y, x},
-                          {x, kOrder - 1 - y},
-                          {kOrder - 1 - y, kOrder - 1 - x},
-                          {kOrder - 1 - x, y}}) {
-                        table[rotated_y][rotated_x][0] = {(i8)y, (i8)x};
-                        table[rotated_y][rotated_x][1] = {(i8)x,
-                                                          (i8)(kOrder - 1 - y)};
-                        table[rotated_y][rotated_x][3] = {(i8)(kOrder - 1 - y),
-                                                          (i8)(kOrder - 1 - x)};
-                        table[rotated_y][rotated_x][2] = {(i8)(kOrder - 1 - x),
-                                                          (i8)(y)};
-                        // 2 と 3 が逆なのは、
-                        // ここでは左上->右上->右下->左下の順で代入しているため
-                    }
-                }
-            if constexpr (kOrder % 2 == 1) {
-                table[kOrder / 2][kOrder / 2][0] = {(i8)(kOrder / 2),
-                                                    (i8)(kOrder / 2)};
-                table[kOrder / 2][kOrder / 2][1] = {(i8)-100, (i8)-100};
-                table[kOrder / 2][kOrder / 2][2] = {(i8)-100, (i8)-100};
-                table[kOrder / 2][kOrder / 2][3] = {(i8)-100, (i8)-100};
-            }
-            return table;
-        }();
-        const auto t = table[y][x][color.data % 4];
-        return FaceletPosition{(i8)(color.data / 4), t.y, t.x};
     }
 
     vector<Formula> results;
@@ -127,8 +91,8 @@ struct EdgeFormulaSearcher {
                         const auto pos =
                             FaceletPosition{(i8)face_id, (i8)y, (i8)x};
                         const auto color = cube.Get(pos);
-                        auto original_pos =
-                            ComputeOriginalFaceletPosition(y, x, color);
+                        const auto original_pos =
+                            Cube::ComputeOriginalFaceletPosition(y, x, color);
                         if (pos != original_pos)
                             facelet_changes_array[n_facelet_changes++] = {
                                 original_pos, pos};
@@ -138,8 +102,8 @@ struct EdgeFormulaSearcher {
                         const auto pos =
                             FaceletPosition{(i8)face_id, (i8)y, (i8)x};
                         const auto color = cube.Get(pos);
-                        auto original_pos =
-                            ComputeOriginalFaceletPosition(y, x, color);
+                        const auto original_pos =
+                            Cube::ComputeOriginalFaceletPosition(y, x, color);
                         if (pos != original_pos)
                             facelet_changes_array[n_facelet_changes++] = {
                                 original_pos, pos};
@@ -159,6 +123,7 @@ struct EdgeFormulaSearcher {
         }
 
         // TODO: IDDFS にして、ハッシュを使って手順前後みたいな重複を除去？
+        // 現在は f2.d0.d0.-f2 と f2.-d0.-d0.-f2 のような実質同じ手筋がある
 
         // 面の回転 (初手以外)
         if (depth != 0 && n_inner_rotations < max_depth - depth) {
@@ -263,26 +228,67 @@ struct EdgeFormulaSearcher {
     }
 };
 
-void SearchEdgeFormula() {
-    auto s = EdgeFormulaSearcher(5);
-    const auto results = s.Search();
-    cout << results.size() << endl;
+template <int order>
+static auto SearchEdgeFormulaWithOrder(const int max_depth) {
+    auto searcher = EdgeFormulaSearcher<order>(max_depth);
+    const auto results = searcher.Search();
+    auto os = ofstream(format("out/edge_formula_{}_{}.txt", order, max_depth));
+    os << "# Number of formulas: " << results.size() << endl;
     for (const auto& formula : results) {
-        formula.Print();
-        cout << "  " << formula.facelet_changes.size();
+        formula.Print(os);
+        // os << "  " << formula.facelet_changes.size();
         if (0) {
-            for (const auto [from, to] : formula.facelet_changes) {
-                cout << " " << (int)from.face_id << (int)from.y << (int)from.x
-                     << "->" << (int)to.face_id << (int)to.y << (int)to.x;
-            }
+            for (const auto [from, to] : formula.facelet_changes)
+                os << format(" {}{}{}->{}{}{}", (int)from.face_id, (int)from.y,
+                             (int)from.x, (int)to.face_id, (int)to.y,
+                             (int)to.x);
         }
-        cout << endl;
+        os << endl;
     }
 }
 
-int main() {
-    SearchEdgeFormula();
-    //
+[[maybe_unused]] static auto SearchEdgeFormula(const int order,
+                                               const int max_depth) {
+    switch (order) {
+    case 2:
+        return SearchEdgeFormulaWithOrder<2>(max_depth);
+    case 3:
+        return SearchEdgeFormulaWithOrder<3>(max_depth);
+    case 4:
+        return SearchEdgeFormulaWithOrder<4>(max_depth);
+    case 5:
+        return SearchEdgeFormulaWithOrder<5>(max_depth);
+    case 6:
+        return SearchEdgeFormulaWithOrder<6>(max_depth);
+    case 7:
+        return SearchEdgeFormulaWithOrder<7>(max_depth);
+    case 8:
+        return SearchEdgeFormulaWithOrder<8>(max_depth);
+    case 9:
+        return SearchEdgeFormulaWithOrder<9>(max_depth);
+    case 10:
+        return SearchEdgeFormulaWithOrder<10>(max_depth);
+    case 19:
+        return SearchEdgeFormulaWithOrder<19>(max_depth);
+    case 33:
+        return SearchEdgeFormulaWithOrder<33>(max_depth);
+    default:
+        assert(false);
+    }
+}
+
+int main(const int argc, const char* const* const argv) {
+    if (argc < 3) {
+        cout << "Usage: " << argv[0] << " <order> <max_depth>" << endl;
+        return 1;
+    }
+    const auto order = atoi(argv[1]);
+    const auto max_depth = atoi(argv[2]);
+
+    cout << "Order: " << order << endl;
+    cout << "Max Depth: " << max_depth << endl;
+
+    SearchEdgeFormula(order, max_depth);
 }
 
 // clang++ -std=c++20 -Wall -Wextra -O3 search_edge_formula.cpp

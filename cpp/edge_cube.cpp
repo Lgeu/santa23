@@ -1,4 +1,9 @@
 #include "cube.cpp"
+#include <format>
+#include <fstream>
+
+using std::format;
+using std::ifstream;
 
 // 辺のための色
 struct ColorType48 {
@@ -26,6 +31,13 @@ struct ColorType48 {
         Print(os);
         if (data >= 0)
             os << "\e[0m";
+    }
+
+    template <Cubeish CubeType>
+    inline FaceletPosition ComputeOriginalFaceletPosition(const int y,
+                                                          const int x) const {
+        return ::Cube<CubeType::order, ColorType24>::
+            ComputeOriginalFaceletPosition(y, x, ColorType24{(i8)(data / 2)});
     }
 
     friend auto& operator<<(ostream& os, const ColorType48 t) {
@@ -286,6 +298,22 @@ template <int order_, typename ColorType_ = ColorType48> struct EdgeCube {
                 Rotate(m);
     }
 
+    inline static constexpr auto AllFaceletPositions() {
+        array<FaceletPosition, 6 * 4 * (order - 2)> facelet_positions;
+        auto i = 0;
+        for (auto face_id = 0; face_id < 6; face_id++) {
+            for (auto x = 1; x < order - 1; x++)
+                facelet_positions[i++] = {(i8)face_id, (i8)0, (i8)x};
+            for (auto y = 1; y < order - 1; y++)
+                facelet_positions[i++] = {(i8)face_id, (i8)y, (i8)0};
+            for (auto x = order - 2; x >= 1; x--)
+                facelet_positions[i++] = {(i8)face_id, (i8)(order - 1), (i8)x};
+            for (auto y = order - 2; y >= 1; y--)
+                facelet_positions[i++] = {(i8)face_id, (i8)y, (i8)(order - 1)};
+        }
+        return facelet_positions;
+    }
+
     inline auto Get(const int face_id, const int y, const int x) const {
         return faces[face_id].Get(y, x);
     }
@@ -303,6 +331,13 @@ template <int order_, typename ColorType_ = ColorType48> struct EdgeCube {
     inline void Set(const FaceletPosition& facelet_position, ColorType color) {
         Set(facelet_position.face_id, facelet_position.y, facelet_position.x,
             color);
+    }
+
+    static FaceletPosition
+    ComputeOriginalFaceletPosition(const int y, const int x,
+                                   const ColorType color) {
+        return ::Cube<order, ColorType>::ComputeOriginalFaceletPosition(y, x,
+                                                                        color);
     }
 
     inline auto ComputeEdgeDiff(const EdgeCube& rhs) const {
@@ -365,6 +400,131 @@ template <int order_, typename ColorType_ = ColorType48> struct EdgeCube {
     // TODO: Cube との相互変換
 };
 
+using EdgeAction = Formula;
+
+template <int order> struct EdgeState {
+    using EdgeCube = ::EdgeCube<order>;
+    EdgeCube cube;
+    int score;   // target との距離
+    int n_moves; // これまでに回した回数
+
+    inline EdgeState(const EdgeCube& cube, const EdgeCube& target_cube)
+        : cube(cube), score(cube.ComputeEdgeDiff(target_cube)), n_moves() {}
+
+    // inplace に変更する
+    inline void Apply(const EdgeAction& action, const EdgeCube& target_cube) {
+        cube.Rotate(action);
+        score = cube.ComputeEdgeDiff(target_cube);
+        n_moves += action.Cost();
+    }
+};
+
+// yield を使って EdgeAction を生成する？
+template <int order> struct EdgeActionCandidateGenerator {
+    using EdgeCube = ::EdgeCube<order>;
+    using EdgeState = ::EdgeState<order>;
+    vector<EdgeAction> actions;
+
+    // ファイルから手筋を読み取る
+    // ファイルには f1.d0.-r0.-f1 みたいなのが 1 行に 1 つ書かれている想定
+    inline void FromFile(const string& filename) {
+        actions.clear();
+
+        // 面の回転 1 つだけからなる手筋を別途加える
+        for (auto i = 0; i < 6; i++) {
+            actions.emplace_back(vector<Move>{Move{(Move::Direction)i, (i8)0}});
+            actions.back().EnableFaceletChanges<EdgeCube>();
+            actions.emplace_back(
+                vector<Move>{Move{(Move::Direction)i, (i8)(order - 1)}});
+            actions.back().EnableFaceletChanges<EdgeCube>();
+        }
+
+        // ファイルから読み取る
+        ifstream ifs(filename);
+        string line;
+        while (getline(ifs, line)) {
+            if (line.empty() || line[0] == '#')
+                continue;
+            actions.emplace_back(line);
+            actions.back().EnableFaceletChanges<EdgeCube>();
+        }
+
+        // TODO: 重複があるかもしれないので確認した方が良い
+    }
+
+    inline const auto& Generate(const EdgeState&) const { return actions; }
+};
+
+template <int order> struct EdgeNode {
+    using EdgeState = ::EdgeState<order>;
+    EdgeState state;
+    shared_ptr<EdgeNode> parent;
+    EdgeAction last_action;
+    inline EdgeNode(const EdgeState& state, const shared_ptr<EdgeNode>& parent,
+                    const EdgeAction& last_action)
+        : state(state), parent(parent), last_action(last_action) {}
+};
+
+template <int order> struct EdgeBeamSearchSolver {
+    using EdgeCube = ::EdgeCube<order>;
+    using EdgeState = ::EdgeState<order>;
+    using EdgeNode = ::EdgeNode<order>;
+    using EdgeActionCandidateGenerator = ::EdgeActionCandidateGenerator<order>;
+
+    EdgeCube target_cube;
+    EdgeActionCandidateGenerator action_candidate_generator;
+    int beam_width;
+    vector<vector<shared_ptr<EdgeNode>>> nodes;
+
+    inline EdgeBeamSearchSolver(const EdgeCube& target_cube,
+                                const int beam_width,
+                                const string& formula_file)
+        : target_cube(target_cube), action_candidate_generator(),
+          beam_width(beam_width), nodes() {
+        action_candidate_generator.FromFile(formula_file);
+    }
+
+    inline shared_ptr<EdgeNode> Solve(const EdgeCube& start_cube) {
+        const auto beam_width = 256;
+        auto rng = RandomNumberGenerator(42);
+
+        const auto start_state = EdgeState(start_cube, target_cube);
+        const auto start_node = make_shared<EdgeNode>(
+            start_state, nullptr, EdgeAction{vector<Move>()});
+        nodes.resize(1);
+        nodes[0].push_back(start_node);
+
+        for (auto current_cost = 0; current_cost < 100000; current_cost++) {
+            for (const auto& node : nodes[current_cost]) {
+                if (node->state.score == 0) {
+                    cerr << "Solved!" << endl;
+                    return node;
+                }
+                for (const auto& action :
+                     action_candidate_generator.Generate(node->state)) {
+                    auto new_state = node->state;
+                    new_state.Apply(action, target_cube);
+                    if (new_state.n_moves >= (int)nodes.size())
+                        nodes.resize(new_state.n_moves + 1);
+                    if ((int)nodes[new_state.n_moves].size() < beam_width) {
+                        nodes[new_state.n_moves].emplace_back(
+                            new EdgeNode(new_state, node, action));
+                    } else {
+                        const auto idx = rng.Next() % beam_width;
+                        if (new_state.score <
+                            nodes[new_state.n_moves][idx]->state.score)
+                            nodes[new_state.n_moves][idx].reset(
+                                new EdgeNode(new_state, node, action));
+                    }
+                }
+            }
+            nodes[current_cost].clear();
+        }
+        cerr << "Failed." << endl;
+        return nullptr;
+    }
+};
+
 [[maybe_unused]] static void TestEdgeCube() {
     constexpr auto kOrder = 5;
     const auto moves = {
@@ -381,7 +541,59 @@ template <int order_, typename ColorType_ = ColorType48> struct EdgeCube {
     formula.Display<EdgeCube<kOrder>>();
 }
 
+[[maybe_unused]] static void TestEdgeActionCandidateGenerator() {
+    constexpr auto kOrder = 5;
+    const auto formula_file = "out/edge_formula_5_4.txt";
+
+    using EdgeActionCandidateGenerator = EdgeActionCandidateGenerator<kOrder>;
+    using EdgeCube = typename EdgeActionCandidateGenerator::EdgeCube;
+
+    auto action_candidate_generator = EdgeActionCandidateGenerator();
+    action_candidate_generator.FromFile(formula_file);
+
+    for (auto i : {0, 1, 2, 12, 13}) {
+        const auto action = action_candidate_generator.actions[i];
+        cout << format("# {}", i) << endl;
+        action.Print();
+        cout << endl;
+        action.Display<EdgeCube>();
+        cout << endl << endl;
+    }
+}
+
+[[maybe_unused]] static void TestEdgeBeamSearch() {
+    constexpr auto kOrder = 7;
+    const auto formula_file = "out/edge_formula_7_5.txt";
+    const auto beam_width = 256;
+
+    using Solver = EdgeBeamSearchSolver<kOrder>;
+    using EdgeCube = typename Solver::EdgeCube;
+
+    auto initial_cube = EdgeCube();
+    // TODO: initial_cube を初期化する
+    auto target_cube = EdgeCube();
+    target_cube.Reset();
+
+    auto solver = Solver(target_cube, beam_width, formula_file);
+
+    solver.Solve(initial_cube);
+
+    // TODO: 結果を表示する
+}
+
 // clang++ -std=c++20 -Wall -Wextra -O3 edge_cube.cpp -DTEST_EDGE_CUBE
 #ifdef TEST_EDGE_CUBE
 int main() { TestEdgeCube(); }
+#endif
+
+// clang-format off
+// clang++ -std=c++20 -Wall -Wextra -O3 edge_cube.cpp -DTEST_EDGE_ACTION_CANDIDATE_GENERATOR
+#ifdef TEST_EDGE_ACTION_CANDIDATE_GENERATOR
+int main() { TestEdgeActionCandidateGenerator(); }
+#endif
+// clang-format on
+
+// clang++ -std=c++20 -Wall -Wextra -O3 edge_cube.cpp -DTEST_EDGE_BEAM_SEARCH
+#ifdef TEST_EDGE_BEAM_SEARCH
+int main() { TestEdgeBeamSearch(); }
 #endif
