@@ -132,21 +132,24 @@ template <int order> struct EdgeFormulaSearcher {
             if (mov.GetAxis() != last_mov.GetAxis())
                 return true;
             // 同じ軸の回転では、回転方向と回転箇所が昇順である
-            if (mov < last_mov)
-                return false;
-            if (mov == last_mov) {
-                // 正の向きの回転が 3 回連続してはいけない
-                if (last_mov.IsClockWise()) {
-                    if (depth >= 2) {
-                        const auto second_last_mov = move_history[depth - 2];
-                        if (second_last_mov == last_mov)
-                            return false;
-                    }
-                    // 負の向きの回転が 2 回連続してはいけない
-                } else
-                    return false;
+            if (mov.depth < last_mov.depth)
+                return false; // 回転位置を昇順にする
+            else if (mov.depth > last_mov.depth)
+                return true; // 回転位置を昇順にする
+            else if ((int)mov.direction == ((int)last_mov.direction ^ 1)) {
+                return false; // 回転位置が同じかつ回転方向が逆ならだめ
             }
-            return true;
+            assert(mov == last_mov);
+            // 正の向きの回転が 3 回連続してはいけない
+            if (last_mov.IsClockWise()) {
+                if (depth >= 2) {
+                    const auto second_last_mov = move_history[depth - 2];
+                    if (second_last_mov == last_mov)
+                        return false;
+                }
+                return true;
+            } else
+                return false; // 負の向きの回転が 2 回連続してはいけない
         };
 
         // 面の回転 (初手以外)
