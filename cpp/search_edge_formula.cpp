@@ -123,13 +123,39 @@ template <int order> struct EdgeFormulaSearcher {
         }
 
         // TODO: IDDFS にして、ハッシュを使って手順前後みたいな重複を除去？
-        // 現在は f2.d0.d0.-f2 と f2.-d0.-d0.-f2 のような実質同じ手筋がある
+
+        // どの種類の回転に対しても適用される条件
+        const auto can_be_next_move = [this](const Move mov) {
+            if (depth == 0)
+                return true;
+            const auto last_mov = move_history[depth - 1];
+            if (mov.GetAxis() != last_mov.GetAxis())
+                return true;
+            // 同じ軸の回転では、回転方向と回転箇所が昇順である
+            if (mov < last_mov)
+                return false;
+            if (mov == last_mov) {
+                // 正の向きの回転が 3 回連続してはいけない
+                if (last_mov.IsClockWise()) {
+                    if (depth >= 2) {
+                        const auto second_last_mov = move_history[depth - 2];
+                        if (second_last_mov == last_mov)
+                            return false;
+                    }
+                    // 負の向きの回転が 2 回連続してはいけない
+                } else
+                    return false;
+            }
+            return true;
+        };
 
         // 面の回転 (初手以外)
         if (depth != 0 && n_inner_rotations < max_depth - depth) {
             for (const i8 i : {0, Cube::order - 1}) {
                 for (auto direction = (i8)0; direction < 6; direction++) {
                     const auto mov = Move{(Move::Direction)direction, i};
+                    if (!can_be_next_move(mov))
+                        continue;
                     const auto inv_mov = mov.Inv();
                     for (auto d = depth - 1;; d--) {
                         // 初手まで遡っても他の軸の回転が無いものはだめ
@@ -157,6 +183,8 @@ template <int order> struct EdgeFormulaSearcher {
             for (auto i = (i8)1; i < Cube::order - 1; i++) {
                 for (auto direction = (i8)0; direction < 6; direction++) {
                     const auto mov = Move{(Move::Direction)direction, i};
+                    if (!can_be_next_move(mov))
+                        continue;
                     // inner_rotations を減らすものは除外する
                     const auto inv_mov = mov.Inv();
                     for (auto idx_inner_rotations = 0;
@@ -202,6 +230,8 @@ template <int order> struct EdgeFormulaSearcher {
                 }
                 const auto inv_mov = inner_rotations[idx_inner_rotations];
                 const auto mov = inv_mov.Inv();
+                if (!can_be_next_move(mov))
+                    continue;
                 for (auto d = depth - 1;; d--) {
                     assert(d >= 0);
                     // 他の軸の回転を挟まずに戻すのはだめ
