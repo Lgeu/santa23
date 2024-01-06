@@ -742,6 +742,16 @@ template <int order> struct EdgeBeamSearchSolver {
     converted_edge_cube.Display();
 }
 
+[[maybe_unused]] static void TestReadNNN() {
+    const auto filename = "input_example.nnn";
+    auto cube = Cube<7, ColorType6>();
+    cube.ReadNNN(filename);
+    cube.Display();
+    auto edge_cube = EdgeCube<7>();
+    edge_cube.FromCube(cube);
+    edge_cube.Display();
+}
+
 [[maybe_unused]] static void TestEdgeActionCandidateGenerator() {
     constexpr auto kOrder = 5;
     const auto formula_file = "out/edge_formula_5_4.txt";
@@ -770,15 +780,24 @@ template <int order> struct EdgeBeamSearchSolver {
     using Solver = EdgeBeamSearchSolver<kOrder>;
     using EdgeCube = typename Solver::EdgeCube;
 
-    // ランダムな initial_cube を用意する
-    // 解けたり解けなかったりする
     auto initial_cube = EdgeCube();
-    initial_cube.Reset();
-    auto rng = RandomNumberGenerator(42);
-    for (auto i = 0; i < 200; i++) {
-        const auto mov =
-            Move{(Move::Direction)(rng.Next() % 6), (i8)(rng.Next() % kOrder)};
-        initial_cube.Rotate(mov);
+    if (false) {
+        // ランダムな initial_cube を用意する
+        // 解けたり解けなかったりする
+        initial_cube.Reset();
+        auto rng = RandomNumberGenerator(42);
+        for (auto i = 0; i < 200; i++) {
+            const auto mov = Move{(Move::Direction)(rng.Next() % 6),
+                                  (i8)(rng.Next() % kOrder)};
+            initial_cube.Rotate(mov);
+        }
+    } else {
+        const auto input_cube_file = "input_example_1.nnn";
+        // const auto input_cube_file = "input_example_2.nnn";
+        // const auto input_cube_file = "input_example_3.nnn";
+        auto cube = Cube<7, ColorType6>();
+        cube.ReadNNN(input_cube_file);
+        initial_cube.FromCube(cube);
     }
 
     auto target_cube = EdgeCube();
@@ -810,6 +829,11 @@ int main() { TestEdgeCube(); }
 // clang++ -std=c++20 -Wall -Wextra -O3 edge_cube.cpp -DTEST_FROM_CUBE
 #ifdef TEST_FROM_CUBE
 int main() { TestFromCube(); }
+#endif
+
+// clang++ -std=c++20 -Wall -Wextra -O3 edge_cube.cpp -DTEST_READ_NNN
+#ifdef TEST_READ_NNN
+int main() { TestReadNNN(); }
 #endif
 
 // clang-format off
