@@ -1,5 +1,6 @@
 #include <array>
 #include <cassert>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <ostream>
@@ -13,14 +14,17 @@ using std::cerr;
 using std::cout;
 using std::endl;
 using std::getline;
+using std::ifstream;
 using std::is_same_v;
 using std::istringstream;
 using std::make_shared;
+using std::ofstream;
 using std::ostream;
 using std::same_as;
 using std::shared_ptr;
 using std::string;
 using std::vector;
+using ios = std::ios;
 
 using i8 = signed char;
 using u64 = unsigned long long;
@@ -650,6 +654,40 @@ template <int order_, typename ColorType_ = ColorType6> struct Cube {
                     Set(face_id, y, x, {s[i] - 'A'});
                     i += 2;
                 }
+    }
+
+    // 面ソルバのフォーマットを読み取る
+    inline void ReadNNN(const string& filename)
+        requires is_same_v<ColorType, ColorType6>
+    {
+        auto ifs = ifstream(filename, ios::binary);
+        static constexpr auto kColorMapping = array<i8, 6>{0, 5, 2, 4, 1, 3};
+        for (const auto face_id : kColorMapping) {
+            for (auto y = 0; y < order; y++)
+                for (auto x = 0; x < order; x++) {
+                    char c;
+                    ifs.read(&c, 1);
+                    assert(0 <= c && c < 6);
+                    Set(face_id, y, x, {kColorMapping[c]});
+                }
+        }
+    }
+
+    // 面ソルバのフォーマットで書き出す
+    inline void WriteNNN(const string& filename)
+        requires is_same_v<ColorType, ColorType6>
+    {
+        auto ofs = ofstream(filename, ios::binary);
+        static constexpr auto kColorMapping = array<i8, 6>{0, 5, 2, 4, 1, 3};
+        static constexpr auto kInvColorMapping = array<i8, 6>{0, 4, 2, 5, 3, 1};
+        for (const auto face_id : kColorMapping) {
+            for (auto y = 0; y < order; y++)
+                for (auto x = 0; x < order; x++) {
+                    const auto color = Get(face_id, y, x);
+                    auto c = (char)kInvColorMapping[color.data];
+                    ofs.write(&c, 1);
+                }
+        }
     }
 
     inline void Print() const {

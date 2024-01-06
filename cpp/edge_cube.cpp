@@ -1,9 +1,7 @@
 #include "cube.cpp"
 #include <format>
-#include <fstream>
 
 using std::format;
-using std::ifstream;
 using std::min;
 
 // 辺のための色
@@ -156,6 +154,12 @@ template <int order, typename ColorType_ = ColorType48> struct EdgeFace {
         } else {
             assert(false);
         }
+    }
+
+    inline void TrySet(const int y, const int x, ColorType color) {
+        if ((y == 0 || y == order - 1) == (x == 0 || x == order - 1))
+            return;
+        Set(y, x, color);
     }
 };
 
@@ -372,6 +376,80 @@ template <int order_, typename ColorType_ = ColorType48> struct EdgeCube {
         return diff;
     }
 
+    // 異なる面の隣接するマスを取得する
+    inline static FaceletPosition
+    GetAdjacentPosition(const FaceletPosition& pos) {
+        switch (pos.face_id) {
+        case D1:
+            if (pos.y == 0)
+                return {F1, 0, (i8)(order - 1 - pos.x)};
+            else if (pos.y == order - 1)
+                return {F0, 0, pos.x};
+            else if (pos.x == 0)
+                return {R1, 0, pos.y};
+            else if (pos.x == order - 1)
+                return {R0, 0, (i8)(order - 1 - pos.y)};
+            else
+                assert(false);
+        case F0:
+            if (pos.y == 0)
+                return {D1, (i8)(order - 1), pos.x};
+            else if (pos.y == order - 1)
+                return {D0, 0, pos.x};
+            else if (pos.x == 0)
+                return {R1, pos.y, (i8)(order - 1)};
+            else if (pos.x == order - 1)
+                return {R0, pos.y, 0};
+            else
+                assert(false);
+        case R0:
+            if (pos.y == 0)
+                return {D1, (i8)(order - 1 - pos.x), (i8)(order - 1)};
+            else if (pos.y == order - 1)
+                return {D0, pos.x, (i8)(order - 1)};
+            else if (pos.x == 0)
+                return {F0, pos.y, (i8)(order - 1)};
+            else if (pos.x == order - 1)
+                return {F1, pos.y, 0};
+            else
+                assert(false);
+        case F1:
+            if (pos.y == 0)
+                return {D1, 0, (i8)(order - 1 - pos.x)};
+            else if (pos.y == order - 1)
+                return {D0, (i8)(order - 1), (i8)(order - 1 - pos.x)};
+            else if (pos.x == 0)
+                return {R0, pos.y, (i8)(order - 1)};
+            else if (pos.x == order - 1)
+                return {R1, pos.y, 0};
+            else
+                assert(false);
+        case R1:
+            if (pos.y == 0)
+                return {D1, pos.x, 0};
+            else if (pos.y == order - 1)
+                return {D0, (i8)(order - 1 - pos.x), 0};
+            else if (pos.x == 0)
+                return {F1, pos.y, (i8)(order - 1)};
+            else if (pos.x == order - 1)
+                return {F0, pos.y, 0};
+            else
+                assert(false);
+        case D0:
+            if (pos.y == 0)
+                return {F0, (i8)(order - 1), pos.x};
+            else if (pos.y == order - 1)
+                return {F1, (i8)(order - 1), (i8)(order - 1 - pos.x)};
+            else if (pos.x == 0)
+                return {R1, (i8)(order - 1), (i8)(order - 1 - pos.y)};
+            else if (pos.x == order - 1)
+                return {R0, (i8)(order - 1), pos.y};
+            else
+                assert(false);
+        }
+        return {};
+    }
+
     // Kaggle フォーマットを読み取る
     inline void Read(const string& s) {
         assert(s.size() >= 6 * order * order * 2 - 1);
@@ -379,11 +457,80 @@ template <int order_, typename ColorType_ = ColorType48> struct EdgeCube {
         for (auto face_id = 0; face_id < 6; face_id++)
             for (auto y = 0; y < order; y++)
                 for (auto x = 0; x < order; x++) {
-                    if ((y == 0 || y == order - 1) !=
-                        (x == 0 || x == order - 1))
-                        Set(face_id, y, x, {s[i] - 'A'});
+                    TrySet(face_id, y, x, {s[i] - 'A'});
                     i += 2;
                 }
+    }
+
+    inline void FromCube(const Cube<order, ColorType6>& rhs) {
+        static auto color6_and_position_to_color48 = [] {
+            auto result = array<array<EdgeFace<order>, 6>, 6>{};
+            for (auto&& result_i : result)
+                for (auto&& result_ij : result_i)
+                    for (auto&& result_ijk : result_ij.facelets)
+                        for (auto&& result_ijkl : result_ijk)
+                            result_ijkl = {(i8)-100};
+            auto cube6 = Cube<order, ColorType6>();
+            cube6.Reset();
+            auto cube48 = EdgeCube();
+            cube48.Reset();
+            for (auto face_id = 0; face_id < 6; face_id++) {
+                for (auto x = 1; x < order - 1; x++) {
+                    for (const auto y : {0, order - 1}) {
+                        const auto pos =
+                            FaceletPosition{(i8)face_id, (i8)y, (i8)x};
+                        const auto adj_pos = GetAdjacentPosition(pos);
+                        assert(pos == GetAdjacentPosition(adj_pos));
+                        const auto color6 = cube6.Get(pos);
+                        const auto adj_color6 = cube6.Get(adj_pos);
+                        const auto color48 = cube48.Get(pos);
+                        result[color6.data][adj_color6.data].Set(y, x, color48);
+                        result[color6.data][adj_color6.data].Set(
+                            x, order - 1 - y, color48);
+                        result[color6.data][adj_color6.data].Set(
+                            order - 1 - y, order - 1 - x, color48);
+                        result[color6.data][adj_color6.data].Set(order - 1 - x,
+                                                                 y, color48);
+                    }
+                }
+                for (auto y = 1; y < order - 1; y++) {
+                    for (const auto x : {0, order - 1}) {
+                        const auto pos =
+                            FaceletPosition{(i8)face_id, (i8)y, (i8)x};
+                        const auto adj_pos = GetAdjacentPosition(pos);
+                        assert(pos == GetAdjacentPosition(adj_pos));
+                        const auto color6 = cube6.Get(pos);
+                        const auto adj_color6 = cube6.Get(adj_pos);
+                        const auto color48 = cube48.Get(pos);
+                        result[color6.data][adj_color6.data].Set(y, x, color48);
+                        result[color6.data][adj_color6.data].Set(
+                            x, order - 1 - y, color48);
+                        result[color6.data][adj_color6.data].Set(
+                            order - 1 - y, order - 1 - x, color48);
+                        result[color6.data][adj_color6.data].Set(order - 1 - x,
+                                                                 y, color48);
+                    }
+                }
+            }
+            return result;
+        }();
+
+        for (auto face_id = 0; face_id < 6; face_id++) {
+            for (auto y = 0; y < order; y++)
+                for (auto x = 0; x < order; x++) {
+                    if (((y == 0 || y == order - 1) ==
+                         (x == 0 || x == order - 1)))
+                        continue;
+                    const auto pos = FaceletPosition{(i8)face_id, (i8)y, (i8)x};
+                    const auto color6 = rhs.Get(pos);
+                    const auto adj_color6 = rhs.Get(GetAdjacentPosition(pos));
+                    const auto color48 =
+                        color6_and_position_to_color48[color6.data]
+                                                      [adj_color6.data]
+                                                          .Get(y, x);
+                    Set(face_id, y, x, color48);
+                }
+        }
     }
 
     inline void Print() const {
@@ -572,6 +719,29 @@ template <int order> struct EdgeBeamSearchSolver {
     formula.Display<EdgeCube<kOrder>>();
 }
 
+[[maybe_unused]] static void TestFromCube() {
+    auto cube = Cube<5, ColorType6>();
+    cube.Reset();
+    auto reference_edge_cube = EdgeCube<5>();
+    reference_edge_cube.Reset();
+    auto converted_edge_cube = EdgeCube<5>();
+
+    // ランダムに回す
+    auto rng = RandomNumberGenerator(42);
+    for (auto i = 0; i < 100; i++) {
+        const auto mov =
+            Move{(Move::Direction)(rng.Next() % 6), (i8)(rng.Next() % 5)};
+        cube.Rotate(mov);
+        reference_edge_cube.Rotate(mov);
+    }
+
+    cube.Display();
+    reference_edge_cube.Display();
+
+    converted_edge_cube.FromCube(cube);
+    converted_edge_cube.Display();
+}
+
 [[maybe_unused]] static void TestEdgeActionCandidateGenerator() {
     constexpr auto kOrder = 5;
     const auto formula_file = "out/edge_formula_5_4.txt";
@@ -635,6 +805,11 @@ template <int order> struct EdgeBeamSearchSolver {
 // clang++ -std=c++20 -Wall -Wextra -O3 edge_cube.cpp -DTEST_EDGE_CUBE
 #ifdef TEST_EDGE_CUBE
 int main() { TestEdgeCube(); }
+#endif
+
+// clang++ -std=c++20 -Wall -Wextra -O3 edge_cube.cpp -DTEST_FROM_CUBE
+#ifdef TEST_FROM_CUBE
+int main() { TestFromCube(); }
 #endif
 
 // clang-format off
