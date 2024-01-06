@@ -4,6 +4,7 @@
 
 using std::format;
 using std::ifstream;
+using std::min;
 
 // 辺のための色
 struct ColorType48 {
@@ -36,8 +37,10 @@ struct ColorType48 {
     template <Cubeish CubeType>
     inline FaceletPosition ComputeOriginalFaceletPosition(const int y,
                                                           const int x) const {
+        const auto as_color_type_24 =
+            ColorType24{(i8)(((data & 0b111000) + (data + 1 & 0b111)) >> 1)};
         return ::Cube<CubeType::order, ColorType24>::
-            ComputeOriginalFaceletPosition(y, x, ColorType24{(i8)(data / 2)});
+            ComputeOriginalFaceletPosition(y, x, as_color_type_24);
     }
 
     friend auto& operator<<(ostream& os, const ColorType48 t) {
@@ -292,7 +295,7 @@ template <int order_, typename ColorType_ = ColorType48> struct EdgeCube {
             for (auto i = 0; i < (int)formula.facelet_changes.size(); i++)
                 new_colors[i] = Get(formula.facelet_changes[i].from);
             for (auto i = 0; i < (int)formula.facelet_changes.size(); i++)
-                Set(formula.facelet_changes[i].from, new_colors[i]);
+                Set(formula.facelet_changes[i].to, new_colors[i]);
         } else
             for (const auto& m : formula.moves)
                 Rotate(m);
@@ -305,12 +308,13 @@ template <int order_, typename ColorType_ = ColorType48> struct EdgeCube {
             for (auto x = 1; x < order - 1; x++)
                 facelet_positions[i++] = {(i8)face_id, (i8)0, (i8)x};
             for (auto y = 1; y < order - 1; y++)
-                facelet_positions[i++] = {(i8)face_id, (i8)y, (i8)0};
+                facelet_positions[i++] = {(i8)face_id, (i8)y, (i8)(order - 1)};
             for (auto x = order - 2; x >= 1; x--)
                 facelet_positions[i++] = {(i8)face_id, (i8)(order - 1), (i8)x};
             for (auto y = order - 2; y >= 1; y--)
-                facelet_positions[i++] = {(i8)face_id, (i8)y, (i8)(order - 1)};
+                facelet_positions[i++] = {(i8)face_id, (i8)y, (i8)0};
         }
+        assert(i == (int)facelet_positions.size());
         return facelet_positions;
     }
 
@@ -338,6 +342,21 @@ template <int order_, typename ColorType_ = ColorType48> struct EdgeCube {
                                    const ColorType color) {
         return ::Cube<order, ColorType>::ComputeOriginalFaceletPosition(y, x,
                                                                         color);
+    }
+
+    // 各辺で中央のマスと一致していない数を数える
+    inline auto ComputeEdgeScore() const {
+        // あれ、1 面 4 色でよかったんじゃ……
+        auto score = 0;
+        for (auto face_id = 0; face_id < 6; face_id++)
+            for (auto edge_id = 0; edge_id < 4; edge_id++)
+                for (auto x = 0; x < order - 2; x++)
+                    // これ偶数キューブでも動くのか？
+                    score +=
+                        faces[face_id].facelets[edge_id][x].data / 2 !=
+                        faces[face_id].facelets[edge_id][(order - 3) / 2].data /
+                            2;
+        return score;
     }
 
     inline auto ComputeEdgeDiff(const EdgeCube& rhs) const {
@@ -408,13 +427,14 @@ template <int order> struct EdgeState {
     int score;   // target との距離
     int n_moves; // これまでに回した回数
 
-    inline EdgeState(const EdgeCube& cube, const EdgeCube& target_cube)
-        : cube(cube), score(cube.ComputeEdgeDiff(target_cube)), n_moves() {}
+    inline EdgeState(const EdgeCube& cube, const EdgeCube& /*target_cube*/)
+        : cube(cube), score(cube.ComputeEdgeScore()), n_moves() {}
 
     // inplace に変更する
-    inline void Apply(const EdgeAction& action, const EdgeCube& target_cube) {
+    inline void Apply(const EdgeAction& action,
+                      const EdgeCube& /*target_cube*/) {
         cube.Rotate(action);
-        score = cube.ComputeEdgeDiff(target_cube);
+        score = cube.ComputeEdgeScore();
         n_moves += action.Cost();
     }
 };
@@ -495,7 +515,10 @@ template <int order> struct EdgeBeamSearchSolver {
         nodes[0].push_back(start_node);
 
         for (auto current_cost = 0; current_cost < 100000; current_cost++) {
+            auto current_minimum_score = 9999;
             for (const auto& node : nodes[current_cost]) {
+                current_minimum_score =
+                    min(current_minimum_score, node->state.score);
                 if (node->state.score == 0) {
                     cerr << "Solved!" << endl;
                     return node;
@@ -517,6 +540,14 @@ template <int order> struct EdgeBeamSearchSolver {
                                 new EdgeNode(new_state, node, action));
                     }
                 }
+            }
+
+            cout << format("current_cost={} current_minimum_score={}",
+                           current_cost, current_minimum_score)
+                 << endl;
+            if (nodes[current_cost][0]->state.score == 4) {
+                nodes[current_cost][0]->state.cube.Display();
+                exit(1);
             }
             nodes[current_cost].clear();
         }
@@ -569,16 +600,36 @@ template <int order> struct EdgeBeamSearchSolver {
     using Solver = EdgeBeamSearchSolver<kOrder>;
     using EdgeCube = typename Solver::EdgeCube;
 
+    // ランダムな initial_cube を用意する
+    // 解けたり解けなかったりする
     auto initial_cube = EdgeCube();
-    // TODO: initial_cube を初期化する
+    initial_cube.Reset();
+    auto rng = RandomNumberGenerator(42);
+    for (auto i = 0; i < 200; i++) {
+        const auto mov =
+            Move{(Move::Direction)(rng.Next() % 6), (i8)(rng.Next() % kOrder)};
+        initial_cube.Rotate(mov);
+    }
+
     auto target_cube = EdgeCube();
     target_cube.Reset();
 
     auto solver = Solver(target_cube, beam_width, formula_file);
 
-    solver.Solve(initial_cube);
-
-    // TODO: 結果を表示する
+    const auto node = solver.Solve(initial_cube);
+    if (node != nullptr) {
+        cout << node->state.n_moves << endl;
+        auto moves = vector<Move>();
+        for (auto p = node; p->parent != nullptr; p = p->parent)
+            for (auto i = (int)p->last_action.moves.size() - 1; i >= 0; i--)
+                moves.emplace_back(p->last_action.moves[i]);
+        reverse(moves.begin(), moves.end());
+        const auto solution = Formula(moves);
+        solution.Print();
+        cout << endl;
+        initial_cube.Rotate(solution);
+        initial_cube.Display();
+    }
 }
 
 // clang++ -std=c++20 -Wall -Wextra -O3 edge_cube.cpp -DTEST_EDGE_CUBE

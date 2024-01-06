@@ -176,15 +176,15 @@ struct Face {
             for (auto y = 0; y < order; y++)
                 for (auto x = 0; x < order; x++) {
                     // AAB
-                    // CAB
-                    // CDD
+                    // DAB
+                    // DCC
                     const auto color = ColorType{
                         (i8)(start_color.data +
                              (y < order / 2 && x < (order + 1) / 2          ? 0
                               : y < (order + 1) / 2 && x >= (order + 1) / 2 ? 1
-                              : y >= order / 2 && x < order / 2             ? 2
-                              : y >= (order + 1) / 2 && x >= order / 2      ? 3
-                                                                       : 0))};
+                              : y >= (order + 1) / 2 && x >= order / 2      ? 2
+                              : y >= order / 2 && x < order / 2             ? 3
+                                                                : 0))};
                     if constexpr (use_hash)
                         hash_value ^=
                             rnt->Get(((y * order) + x) * ColorType::kNColors +
@@ -602,12 +602,10 @@ template <int order_, typename ColorType_ = ColorType6> struct Cube {
                             table[rotated_y][rotated_x][0] = {(i8)y, (i8)x};
                             table[rotated_y][rotated_x][1] = {
                                 (i8)x, (i8)(order - 1 - y)};
-                            table[rotated_y][rotated_x][3] = {
-                                (i8)(order - 1 - y), (i8)(order - 1 - x)};
                             table[rotated_y][rotated_x][2] = {
+                                (i8)(order - 1 - y), (i8)(order - 1 - x)};
+                            table[rotated_y][rotated_x][3] = {
                                 (i8)(order - 1 - x), (i8)(y)};
-                            // 2 と 3 が逆なのは、
-                            // ここでは左上->右上->右下->左下の順で代入しているため
                         }
                     }
                 if constexpr (order % 2 == 1) {
