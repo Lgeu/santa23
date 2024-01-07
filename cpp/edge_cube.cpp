@@ -1,7 +1,5 @@
 #include "cube.cpp"
-#include <format>
 
-using std::format;
 using std::min;
 
 // 辺のための色
@@ -607,7 +605,11 @@ template <int order> struct EdgeActionCandidateGenerator {
         }
 
         // ファイルから読み取る
-        ifstream ifs(filename);
+        auto ifs = ifstream(filename);
+        if (!ifs.good()) {
+            cerr << format("Cannot open file `{}`.", filename) << endl;
+            abort();
+        }
         string line;
         while (getline(ifs, line)) {
             if (line.empty() || line[0] == '#')
@@ -652,7 +654,6 @@ template <int order> struct EdgeBeamSearchSolver {
     }
 
     inline shared_ptr<EdgeNode> Solve(const EdgeCube& start_cube) {
-        const auto beam_width = 256;
         auto rng = RandomNumberGenerator(42);
 
         const auto start_state = EdgeState(start_cube, target_cube);
@@ -775,7 +776,7 @@ template <int order> struct EdgeBeamSearchSolver {
 [[maybe_unused]] static void TestEdgeBeamSearch() {
     constexpr auto kOrder = 7;
     const auto formula_file = "out/edge_formula_7_5.txt";
-    const auto beam_width = 256;
+    const auto beam_width = 32;
 
     using Solver = EdgeBeamSearchSolver<kOrder>;
     using EdgeCube = typename Solver::EdgeCube;
@@ -792,9 +793,9 @@ template <int order> struct EdgeBeamSearchSolver {
             initial_cube.Rotate(mov);
         }
     } else {
-        const auto input_cube_file = "input_example_1.nnn";
-        // const auto input_cube_file = "input_example_2.nnn";
-        // const auto input_cube_file = "input_example_3.nnn";
+        const auto input_cube_file = "in/input_example_1.nnn";
+        // const auto input_cube_file = "in/input_example_2.nnn";
+        // const auto input_cube_file = "in/input_example_3.nnn";
         auto cube = Cube<7, ColorType6>();
         cube.ReadNNN(input_cube_file);
         initial_cube.FromCube(cube);

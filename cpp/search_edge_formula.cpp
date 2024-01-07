@@ -1,14 +1,9 @@
 #include "cube.cpp"
 
 #include <algorithm>
-#include <format>
-#include <fstream>
 #include <numeric>
 
-using std::format;
-using std::ifstream;
 using std::iota;
-using std::ofstream;
 using std::sort;
 
 template <int order> struct EdgeFormulaSearcher {
@@ -265,7 +260,13 @@ template <int order>
 static auto SearchEdgeFormulaWithOrder(const int max_depth) {
     auto searcher = EdgeFormulaSearcher<order>(max_depth);
     const auto results = searcher.Search();
-    auto os = ofstream(format("out/edge_formula_{}_{}.txt", order, max_depth));
+    const auto filename =
+        format("out/edge_formula_{}_{}.txt", order, max_depth);
+    auto os = ofstream(filename);
+    if (!os.good()) {
+        cerr << format("Cannot open file `{}`.", filename) << endl;
+        abort();
+    }
     os << "# Number of formulas: " << results.size() << endl;
     for (const auto& formula : results) {
         formula.Print(os);

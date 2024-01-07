@@ -1,5 +1,6 @@
 #include <array>
 #include <cassert>
+#include <format>
 #include <fstream>
 #include <iostream>
 #include <memory>
@@ -13,6 +14,7 @@ using std::array;
 using std::cerr;
 using std::cout;
 using std::endl;
+using std::format;
 using std::getline;
 using std::ifstream;
 using std::is_same_v;
@@ -661,6 +663,10 @@ template <int order_, typename ColorType_ = ColorType6> struct Cube {
         requires is_same_v<ColorType, ColorType6>
     {
         auto ifs = ifstream(filename, ios::binary);
+        if (!ifs.good()) {
+            cerr << format("Cannot open file `{}`.", filename) << endl;
+            abort();
+        }
         static constexpr auto kColorMapping = array<i8, 6>{0, 5, 2, 4, 1, 3};
         for (const auto face_id : kColorMapping) {
             for (auto y = 0; y < order; y++)
@@ -678,6 +684,10 @@ template <int order_, typename ColorType_ = ColorType6> struct Cube {
         requires is_same_v<ColorType, ColorType6>
     {
         auto ofs = ofstream(filename, ios::binary);
+        if (!ofs.good()) {
+            cerr << format("Cannot open file `{}`.", filename) << endl;
+            abort();
+        }
         static constexpr auto kColorMapping = array<i8, 6>{0, 5, 2, 4, 1, 3};
         static constexpr auto kInvColorMapping = array<i8, 6>{0, 4, 2, 5, 3, 1};
         for (const auto face_id : kColorMapping) {
