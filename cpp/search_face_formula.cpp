@@ -61,11 +61,12 @@ template <int order> struct FaceFormulaSearcher {
             if (last_face_roration_axis != (i8)-1)
                 return false;
         }
-        // 面の揃っていないマスが2以上4以下
+        // 面の揃っていないマスが2以上6以下
+        // 最大数の調整
         // TODO 各面に異なる色を割り当てる
         {
             constexpr int n_facecub_diff_min = 1;
-            constexpr int n_facecub_diff_max = 4;
+            constexpr int n_facecub_diff_max = 6;
             int n_facecube_diff = 0;
             for (auto face_id = 0; face_id <= 5; face_id++) {
                 array<int, ColorType::kNColors> color_counts = {};
@@ -138,6 +139,8 @@ template <int order> struct FaceFormulaSearcher {
                     facelet_changes_array.begin() + n_facelet_changes);
                 results.emplace_back(moves, facelet_changes);
             }
+            // valid ならば、それより深いところまで探索する必要は無い
+            return;
         }
         if (depth == max_depth) {
             assert(n_inner_rotations == 0);
