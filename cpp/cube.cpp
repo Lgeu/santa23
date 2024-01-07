@@ -582,8 +582,8 @@ template <int order_, typename ColorType_ = ColorType6> struct Cube {
         if (formula.use_facelet_changes)
             assert(false); // TODO
         else
-            for (const auto& m : formula.moves)
-                Rotate(m.Inv());
+            for (int i = (int)formula.Cost() - 1; i >= 0; i--)
+                Rotate(formula.moves[i].Inv());
     }
 
     inline static constexpr auto AllFaceletPositions() {
