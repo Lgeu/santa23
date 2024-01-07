@@ -72,11 +72,19 @@ template <int order> struct FaceFormulaSearcher {
                 array<int, ColorType::kNColors> color_counts = {};
                 for (auto y = 1; y < Cube::order - 1; y++) {
                     for (auto x = 1; x < Cube::order - 1; x++) {
-                        const auto color = cube.faces[face_id]
-                                               .GetIgnoringOrientation(y, x)
-                                               .data /
-                                           4;
-                        color_counts[color]++;
+                        if (ColorType::kNColors == 24) {
+                            const auto color = cube.faces[face_id]
+                                                   .GetIgnoringOrientation(y, x)
+                                                   .data /
+                                               4;
+                            color_counts[color]++;
+                        } else if (ColorType::kNColors == 6) {
+                            const auto color = cube.faces[face_id]
+                                                   .GetIgnoringOrientation(y, x)
+                                                   .data;
+                            color_counts[color]++;
+                        } else
+                            assert(false);
                     }
                 }
                 // 最大色
@@ -84,13 +92,26 @@ template <int order> struct FaceFormulaSearcher {
                     i8(max_element(color_counts.begin(), color_counts.end()) -
                        color_counts.begin());
                 for (auto y = 1; y < Cube::order - 1; y++) {
-                    for (auto x = 1; x < Cube::order - 1; x++)
-                        if (cube.faces[face_id]
+                    for (auto x = 1; x < Cube::order - 1; x++) {
+                        bool flag_count = false;
+                        if (ColorType::kNColors == 24) {
+                            if (cube.faces[face_id]
+                                        .GetIgnoringOrientation(y, x)
+                                        .data /
+                                    4 !=
+                                color)
+                                flag_count = true;
+                        } else if (ColorType::kNColors == 6) {
+                            if (cube.faces[face_id]
                                     .GetIgnoringOrientation(y, x)
-                                    .data /
-                                4 !=
-                            color)
+                                    .data != color)
+                                flag_count = true;
+                        } else
+                            assert(false);
+
+                        if (flag_count)
                             n_facecube_diff++;
+                    }
                 }
             }
             assert(n_facecube_diff != 1);
@@ -132,7 +153,8 @@ template <int order> struct FaceFormulaSearcher {
                                 original_pos, pos};
                     }
             }
-            if (n_facelet_changes != 0) {
+            // if (n_facelet_changes != 0) {
+            if (true) { // TODO デバッグ
                 // cout << n_facelet_changes << endl;
                 const auto facelet_changes = vector<Formula::FaceletChange>(
                     facelet_changes_array.begin(),
