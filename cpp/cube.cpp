@@ -290,6 +290,12 @@ struct Face {
             return {};
         }
     }
+
+    inline ColorType GetRaw(const int y, const int x) const {
+        assert(0 <= y && y < order);
+        assert(0 <= x && x < order);
+        return facelets[y][x];
+    }
 };
 
 // 手 (90 度回転)
@@ -326,6 +332,12 @@ struct FaceletPosition {
     inline auto operator<=>(const FaceletPosition&) const = default;
 };
 
+// orientation を考慮しないマスの位置
+struct FaceletPositionRaw {
+    i8 face_id, y, x;
+    inline auto operator<=>(const FaceletPositionRaw&) const = default;
+};
+
 template <int order_, typename ColorType_> struct Cube;
 
 template <class T>
@@ -347,21 +359,29 @@ struct Formula {
     struct FaceletChange {
         FaceletPosition from, to;
     };
+    struct FaceletChangeRaw {
+        FaceletPositionRaw from, to;
+    };
 
     // 手の列
     vector<Move> moves;
     // facelet_changes を使うかどうか
     bool use_facelet_changes;
+    bool use_facelet_changes_raw;
     // 手筋を適用することでどのマスがどこに移動するか (TODO)
     vector<FaceletChange> facelet_changes;
+    vector<FaceletChangeRaw> facelet_changes_raw;
 
     inline Formula(const vector<Move>& moves)
-        : moves(moves), use_facelet_changes(false), facelet_changes() {}
+        : moves(moves), use_facelet_changes(false),
+          use_facelet_changes_raw(false), facelet_changes(),
+          facelet_changes_raw() {}
 
     inline Formula(const vector<Move>& moves,
                    const vector<FaceletChange>& facelet_changes)
         : moves(moves), use_facelet_changes(true),
-          facelet_changes(facelet_changes) {}
+          use_facelet_changes_raw(false), facelet_changes(facelet_changes),
+          facelet_changes_raw() {}
 
     // f1.d0.-r0.-f1 のような形式を読み取る
     inline Formula(const string& s)
@@ -414,6 +434,108 @@ struct Formula {
                 CubeType::ComputeOriginalFaceletPosition(pos.y, pos.x, color);
             if (pos != original_pos)
                 facelet_changes.push_back({original_pos, pos});
+        }
+    }
+
+    // FaceletPositionRaw が異なるものだけを残す
+    // 目的: 面回転時に FaceletChange が計算さえれのを防ぐ
+    template <Cubeish CubeType>
+    inline void EnableFaceletChangesWithNoSameRaw() {
+        // if (use_facelet_changes)
+        //     return;
+        use_facelet_changes = true;
+        facelet_changes.clear();
+        auto cube = CubeType();
+        cube.Reset();
+        for (const auto& mov : moves)
+            cube.Rotate(mov);
+
+        for (const FaceletPosition pos : CubeType::AllFaceletPositions()) {
+            const auto color = cube.Get(pos);
+            const auto original_pos =
+                CubeType::ComputeOriginalFaceletPosition(pos.y, pos.x, color);
+
+            FaceletPositionRaw pos_raw = {pos.face_id, pos.y, pos.x};
+            auto [original_pos_raw_y, original_pos_raw_x] =
+                cube.faces[original_pos.face_id].GetInternalCoordinate(
+                    original_pos.y, original_pos.x);
+            FaceletPositionRaw original_pos_raw = {original_pos.face_id,
+                                                   (i8)original_pos_raw_y,
+                                                   (i8)original_pos_raw_x};
+
+            if (pos != original_pos && pos_raw != original_pos_raw)
+                facelet_changes.push_back({original_pos, pos});
+        }
+    }
+
+    // 辺と角の FaceletChange を削除
+    // 面ビーム用
+    template <Cubeish CubeType> inline void DisableFaceletChangeEdgeCorner() {
+        if (!use_facelet_changes)
+            return;
+        int idx = 0;
+        int order = CubeType::order;
+        while (idx < (int)facelet_changes.size()) {
+            const auto& facelet_change = facelet_changes[idx];
+            int y = facelet_change.from.y, x = facelet_change.from.x;
+            if ((y == 0 || y == order - 1) || (x == 0 || x == order - 1)) {
+                facelet_changes[idx] = facelet_changes.back();
+                facelet_changes.pop_back();
+            } else {
+                idx++;
+            }
+        }
+    }
+
+    template <Cubeish CubeType> inline void EnableFaceletChangesRaw() {
+        if (use_facelet_changes_raw)
+            return;
+        use_facelet_changes_raw = true;
+        facelet_changes_raw.clear();
+        auto cube = CubeType();
+        cube.Reset();
+
+        for (int i = 0; i < 6; i++) {
+            assert(cube.faces[i].GetOrientation() == 0);
+        }
+
+        for (const auto& mov : moves)
+            cube.Rotate(mov);
+
+        for (const FaceletPosition pos : CubeType::AllFaceletPositions()) {
+            const auto color = cube.Get(pos);
+
+            // original_pos の orientation は 0
+            const auto original_pos =
+                CubeType::ComputeOriginalFaceletPosition(pos.y, pos.x, color);
+
+            FaceletPositionRaw pos_raw = {pos.face_id, pos.y, pos.x};
+            auto [original_pos_raw_y, original_pos_raw_x] =
+                cube.faces[original_pos.face_id].GetInternalCoordinate(
+                    original_pos.y, original_pos.x);
+            FaceletPositionRaw original_pos_raw = {original_pos.face_id,
+                                                   (i8)original_pos_raw_y,
+                                                   (i8)original_pos_raw_x};
+            if (pos_raw != original_pos_raw)
+                facelet_changes_raw.push_back({original_pos_raw, pos_raw});
+        }
+    }
+
+    template <Cubeish CubeType>
+    inline void DisableFaceletChangeRawEdgeCorner() {
+        if (!use_facelet_changes_raw)
+            return;
+        int idx = 0;
+        int order = CubeType::order;
+        while (idx < (int)facelet_changes_raw.size()) {
+            const auto& facelet_change_raw = facelet_changes_raw[idx];
+            int y = facelet_change_raw.from.y, x = facelet_change_raw.from.x;
+            if ((y == 0 || y == order - 1) || (x == 0 || x == order - 1)) {
+                facelet_changes_raw[idx] = facelet_changes_raw.back();
+                facelet_changes_raw.pop_back();
+            } else {
+                idx++;
+            }
         }
     }
 
@@ -571,19 +693,19 @@ template <int order_, typename ColorType_ = ColorType6> struct Cube {
     }
 
     inline void Rotate(const Formula& formula) {
-        if (formula.use_facelet_changes)
-            assert(false); // TODO
-        else
-            for (const auto& m : formula.moves)
-                Rotate(m);
+        // if (formula.use_facelet_changes)
+        //     assert(false); // TODO
+        // else
+        for (const auto& m : formula.moves)
+            Rotate(m);
     }
 
     inline void RotateInv(const Formula& formula) {
-        if (formula.use_facelet_changes)
-            assert(false); // TODO
-        else
-            for (int i = (int)formula.Cost() - 1; i >= 0; i--)
-                Rotate(formula.moves[i].Inv());
+        // if (formula.use_facelet_changes)
+        //     assert(false); // TODO
+        // else
+        for (int i = (int)formula.Cost() - 1; i >= 0; i--)
+            Rotate(formula.moves[i].Inv());
     }
 
     inline static constexpr auto AllFaceletPositions() {
@@ -603,6 +725,15 @@ template <int order_, typename ColorType_ = ColorType6> struct Cube {
     inline auto Get(const FaceletPosition& facelet_position) const {
         return Get(facelet_position.face_id, facelet_position.y,
                    facelet_position.x);
+    }
+
+    inline auto GetRaw(const int face_id, const int y, const int x) const {
+        return faces[face_id].GetRaw(y, x);
+    }
+
+    inline auto GetRaw(const FaceletPositionRaw& facelet_position_raw) const {
+        return GetRaw(facelet_position_raw.face_id, facelet_position_raw.y,
+                      facelet_position_raw.x);
     }
 
     inline auto Set(const int face_id, const int y, const int x,

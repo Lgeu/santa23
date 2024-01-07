@@ -18,7 +18,8 @@ struct FaceCube : public Cube<order, ColorType> {
                 for (int x = 1; x < order - 1; x++) {
                     score +=
                         this->Get(face_id, y, x) != target.Get(face_id, y, x);
-                    if ((x == order / 2) && (y == order / 2))
+                    if ((order % 2 == 1) && (x == order / 2) &&
+                        (y == order / 2))
                         score += 100 * (this->Get(face_id, y, x) !=
                                         target.Get(face_id, y, x));
                 }
@@ -57,6 +58,45 @@ template <int order> struct FaceState {
         score = cube.ComputeFaceScore(target_cube);
         n_moves += action.Cost();
     }
+
+    // action, target_cube から score を計算する
+    inline int ScoreWhenApplied(const FaceAction& action,
+                                const FaceCube& target_cube) {
+        int score_when_applied;
+
+        if (action.use_facelet_changes) {
+            score_when_applied = score;
+            int dscore = 0;
+            for (const auto& facelet_change : action.facelet_changes) {
+                auto from = facelet_change.from;
+                auto to = facelet_change.to;
+
+                if (from.x == 0 || from.x == order - 1 || from.y == 0 ||
+                    from.y == order - 1) {
+                    // continue;
+                    assert(false);
+                }
+
+                auto color_from_target = target_cube.Get(from);
+                auto color_to_target = target_cube.Get(to);
+                auto color_from = cube.Get(from);
+
+                int coef = 1;
+                if ((order % 2 == 1) && (from.x == order / 2) &&
+                    (from.y == order / 2))
+                    coef = 100;
+
+                dscore += (color_from == color_from_target) * coef;
+                dscore -= (color_from == color_to_target) * coef;
+            }
+            score_when_applied += dscore;
+        } else {
+            cube.Rotate(action);
+            score_when_applied = cube.ComputeFaceScore(target_cube);
+            cube.RotateInv(action);
+        }
+        return score_when_applied;
+    }
 };
 
 // yield を使って EdgeAction を生成する？
@@ -76,12 +116,11 @@ template <int order> struct FaceActionCandidateGenerator {
             for (int j = 0; j < order; j++) {
                 actions.emplace_back(
                     vector<Move>{Move{(Move::Direction)i, (i8)j}});
-                // actions.emplace_back(
-                //     vector<Move>{Move{(Move::Direction)i, (i8)0}});
-                // // actions.back().EnableFaceletChanges<FaceCube>(); // TODO
-                // actions.emplace_back(
-                //     vector<Move>{Move{(Move::Direction)i, (i8)(order - 1)}});
-                // // actions.back().EnableFaceletChanges<FaceCube>(); // TODO
+                actions.back()
+                    .EnableFaceletChangesWithNoSameRaw<
+                        Cube<order, ColorType24>>();
+                actions.back()
+                    .DisableFaceletChangeEdgeCorner<Cube<order, ColorType24>>();
             }
         }
 
@@ -96,7 +135,10 @@ template <int order> struct FaceActionCandidateGenerator {
             if (line.empty() || line[0] == '#')
                 continue;
             actions.emplace_back(line);
-            // actions.back().EnableFaceletChanges<FaceCube>(); // TODO
+            actions.back()
+                .EnableFaceletChangesWithNoSameRaw<Cube<order, ColorType24>>();
+            actions.back()
+                .DisableFaceletChangeEdgeCorner<Cube<order, ColorType24>>();
         }
 
         // TODO: 重複があるかもしれないので確認した方が良い
@@ -155,19 +197,25 @@ template <int order> struct FaceBeamSearchSolver {
                 }
                 for (const auto& action :
                      action_candidate_generator.Generate(node->state)) {
-                    auto new_state = node->state;
-                    new_state.Apply(action, target_cube);
-                    if (new_state.n_moves >= (int)nodes.size())
-                        nodes.resize(new_state.n_moves + 1);
-                    if ((int)nodes[new_state.n_moves].size() < beam_width) {
+
+                    int new_n_moves = node->state.n_moves + action.Cost();
+                    if (new_n_moves >= (int)nodes.size())
+                        nodes.resize(new_n_moves + 1);
+                    if ((int)nodes[new_n_moves].size() < beam_width) {
+                        auto new_state = node->state;
+                        new_state.Apply(action, target_cube);
                         nodes[new_state.n_moves].emplace_back(
                             new FaceNode(new_state, node, action));
                     } else {
+                        int new_score =
+                            node->state.ScoreWhenApplied(action, target_cube);
                         const auto idx = rng.Next() % beam_width;
-                        if (new_state.score <
-                            nodes[new_state.n_moves][idx]->state.score)
+                        if (new_score < nodes[new_n_moves][idx]->state.score) {
+                            auto new_state = node->state;
+                            new_state.Apply(action, target_cube);
                             nodes[new_state.n_moves][idx].reset(
                                 new FaceNode(new_state, node, action));
+                        }
                     }
                 }
             }
@@ -175,10 +223,6 @@ template <int order> struct FaceBeamSearchSolver {
             cout << format("current_cost={} current_minimum_score={}",
                            current_cost, current_minimum_score)
                  << endl;
-            // if (nodes[current_cost][0]->state.score == 4) {
-            //     nodes[current_cost][0]->state.cube.Display();
-            //     exit(1);
-            // }
             nodes[current_cost].clear();
         }
         cerr << "Failed." << endl;
@@ -275,8 +319,8 @@ template <int order> struct FaceBeamSearchSolver {
 }
 
 [[maybe_unused]] static void TestFaceBeamSearch() {
-    constexpr auto kOrder = 7;
-    const auto formula_file = "out/face_formula_7_8.txt";
+    constexpr auto kOrder = 19;
+    const auto formula_file = "out/face_formula_19_7.txt";
     const auto beam_width = 1;
 
     cerr << format("kOrder={} formula_file={} beam_width={}", kOrder,
