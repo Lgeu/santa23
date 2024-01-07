@@ -39,8 +39,10 @@ template <int order> struct FaceFormulaSearcher {
     // 有効な手筋かチェックする
     bool CheckValid() const {
         // 手筋の長さは 4 以上
-        if (depth < 4)
-            return false;
+        // if (depth < 4)
+        //     return false;
+        if (depth <= 2)
+            return true;
         // 面以外の回転の戻し残しが無い
         if (n_inner_rotations != 0)
             return false;
@@ -162,7 +164,8 @@ template <int order> struct FaceFormulaSearcher {
                 results.emplace_back(moves, facelet_changes);
             }
             // valid ならば、それより深いところまで探索する必要は無い
-            return;
+            if (depth > 2)
+                return;
         }
         if (depth == max_depth) {
             assert(n_inner_rotations == 0);
