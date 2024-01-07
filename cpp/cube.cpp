@@ -22,6 +22,7 @@ using std::istringstream;
 using std::make_shared;
 using std::ofstream;
 using std::ostream;
+using std::pair;
 using std::same_as;
 using std::shared_ptr;
 using std::string;
@@ -268,6 +269,26 @@ struct Face {
         requires use_hash
     {
         return hash_value;
+    }
+
+    inline int GetOrientation() const { return orientation; }
+
+    inline pair<int, int> GetInternalCoordinate(const int y, const int x) {
+        assert(0 <= y && y < order);
+        assert(0 <= x && x < order);
+        switch (orientation) {
+        case 0:
+            return {y, x};
+        case 1:
+            return {x, order - 1 - y};
+        case 2:
+            return {order - 1 - y, order - 1 - x};
+        case 3:
+            return {order - 1 - x, y};
+        default:
+            assert(false);
+            return {};
+        }
     }
 };
 
@@ -555,6 +576,14 @@ template <int order_, typename ColorType_ = ColorType6> struct Cube {
         else
             for (const auto& m : formula.moves)
                 Rotate(m);
+    }
+
+    inline void RotateInv(const Formula& formula) {
+        if (formula.use_facelet_changes)
+            assert(false); // TODO
+        else
+            for (const auto& m : formula.moves)
+                Rotate(m.Inv());
     }
 
     inline static constexpr auto AllFaceletPositions() {
