@@ -198,16 +198,15 @@ template <int order> struct FaceBeamSearchSolver {
         const auto start_state = FaceState(start_cube, target_cube);
         const auto start_node = make_shared<FaceNode>(
             start_state, nullptr, FaceAction{vector<Move>()});
-        nodes.resize(100000,
-                     vector<shared_ptr<FaceNode>>(beam_width, start_node));
-        // nodes.resize(10000);
-        // for (auto& node : nodes) {
-        //     for (int i = 0; i < beam_width; i++) {
-        //         node.push_back(start_node);
-        //     }
-        // }
-        // nodes[0].push_back(start_node);
-        nodes[0][0] = start_node;
+
+        if (n_threads == 1) {
+            nodes.resize(1);
+            nodes[0].push_back(start_node);
+        } else {
+            nodes.resize(100000,
+                         vector<shared_ptr<FaceNode>>(beam_width, start_node));
+            nodes[0][0] = start_node;
+        }
 
         assert(n_threads >= 1);
         vector<thread> threads;
@@ -488,7 +487,7 @@ template <int order> struct FaceBeamSearchSolver {
     const auto formula_file = "out/face_formula_19_7.txt";
     const auto beam_width = 1;
 
-    constexpr int n_threads = 18;
+    constexpr int n_threads = 5;
 
     cerr << format("kOrder={} formula_file={} beam_width={} n_threads={}",
                    kOrder, formula_file, beam_width, n_threads)
