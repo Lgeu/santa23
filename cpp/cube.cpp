@@ -487,6 +487,23 @@ struct Formula {
         }
     }
 
+    // 同じ面に移動する FaceletChange を削除
+    // 面ビーム用
+    template <Cubeish CubeType> inline void DisableFaceletChangeSameFace() {
+        if (!use_facelet_changes)
+            return;
+        int idx = 0;
+        while (idx < (int)facelet_changes.size()) {
+            const auto& facelet_change = facelet_changes[idx];
+            if (facelet_change.from.face_id == facelet_change.to.face_id) {
+                facelet_changes[idx] = facelet_changes.back();
+                facelet_changes.pop_back();
+            } else {
+                idx++;
+            }
+        }
+    }
+
     template <Cubeish CubeType> inline void EnableFaceletChangesRaw() {
         if (use_facelet_changes_raw)
             return;

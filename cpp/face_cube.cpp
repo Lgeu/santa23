@@ -121,6 +121,8 @@ template <int order> struct FaceActionCandidateGenerator {
                         Cube<order, ColorType24>>();
                 actions.back()
                     .DisableFaceletChangeEdgeCorner<Cube<order, ColorType24>>();
+                actions.back()
+                    .DisableFaceletChangeSameFace<Cube<order, ColorType6>>();
             }
         }
 
@@ -139,6 +141,8 @@ template <int order> struct FaceActionCandidateGenerator {
                 .EnableFaceletChangesWithNoSameRaw<Cube<order, ColorType24>>();
             actions.back()
                 .DisableFaceletChangeEdgeCorner<Cube<order, ColorType24>>();
+            actions.back()
+                .DisableFaceletChangeSameFace<Cube<order, ColorType6>>();
         }
 
         // TODO: 重複があるかもしれないので確認した方が良い
