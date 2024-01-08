@@ -76,10 +76,9 @@ template <int order> struct FaceState {
 
         if (action.use_facelet_changes) {
             score_when_applied = score;
-            int dscore = 0;
             for (const auto& facelet_change : action.facelet_changes) {
-                auto from = facelet_change.from;
-                auto to = facelet_change.to;
+                const auto& from = facelet_change.from;
+                const auto& to = facelet_change.to;
 
                 if (from.x == 0 || from.x == order - 1 || from.y == 0 ||
                     from.y == order - 1) {
@@ -87,20 +86,25 @@ template <int order> struct FaceState {
                     assert(false);
                 }
 
-                auto color_from_target = target_cube.Get(from);
-                auto color_to_target = target_cube.Get(to);
-                auto color_from = cube.Get(from);
+                const auto color_from_target = target_cube.Get(from);
+                const auto color_to_target = target_cube.Get(to);
+
+                if (color_from_target == color_to_target)
+                    continue;
+
+                const auto color_from = cube.Get(from);
 
                 int coef = 1;
-                if ((order % 2 == 1) && (from.x == order / 2) &&
-                    (from.y == order / 2))
+                if (((order & 1) == 1) && (from.x * 2 + 1 == order) &&
+                    (from.y * 2 + 1 == order))
                     coef = 100;
 
-                dscore += (color_from == color_from_target) * coef;
-                dscore -= (color_from == color_to_target) * coef;
+                score_when_applied += (int(color_from == color_from_target) -
+                                       int(color_from == color_to_target)) *
+                                      coef;
             }
-            score_when_applied += dscore;
         } else {
+            assert(false);
             cube.Rotate(action);
             score_when_applied = cube.ComputeFaceScore(target_cube);
             cube.RotateInv(action);
@@ -483,11 +487,11 @@ template <int order> struct FaceBeamSearchSolver {
 [[maybe_unused]] static void TestFaceBeamSearch() {
     // constexpr auto kOrder = 9;
     // const auto formula_file = "out/face_formula_9_7.txt";
-    constexpr auto kOrder = 19;
-    const auto formula_file = "out/face_formula_19_7.txt";
-    const auto beam_width = 1;
+    constexpr auto kOrder = 9;
+    const auto formula_file = "out/face_formula_9_7.txt";
+    const auto beam_width = 2;
 
-    constexpr int n_threads = 5;
+    constexpr int n_threads = 1;
 
     cerr << format("kOrder={} formula_file={} beam_width={} n_threads={}",
                    kOrder, formula_file, beam_width, n_threads)
@@ -502,7 +506,7 @@ template <int order> struct FaceBeamSearchSolver {
         // 解けたり解けなかったりする
         initial_cube.Reset();
         auto rng = RandomNumberGenerator(42);
-        for (auto i = 0; i < 1000; i++) {
+        for (auto i = 0; i < 10000; i++) {
             const auto mov = Move{(Move::Direction)(rng.Next() % 6),
                                   (i8)(rng.Next() % kOrder)};
             initial_cube.Rotate(mov);
