@@ -18,7 +18,8 @@ template <int order> struct FaceFormulaSearcher {
 
     FaceFormulaSearcher(const int max_depth)
         : max_depth(max_depth), start_cube(), results(), depth(), cube(),
-          move_history(), inner_rotations(), n_inner_rotations() {
+          move_history(), inner_rotations(), n_inner_rotations(),
+          slice_index_max(0) {
         start_cube.Reset();
     }
 
@@ -35,6 +36,7 @@ template <int order> struct FaceFormulaSearcher {
     array<Move, 8> move_history;                      // Dfs(), CheckValid()
     array<Move, kMaxNInnerRotations> inner_rotations; // Dfs()
     int n_inner_rotations;                            // Dfs(), CheckValid()
+    int slice_index_max;
 
     // 有効な手筋かチェックする
     bool CheckValid() const {
@@ -66,6 +68,7 @@ template <int order> struct FaceFormulaSearcher {
         // 面の揃っていないマスが2以上6以下
         // 最大数の調整
         // TODO 各面に異なる色を割り当てる
+        // TODO 虹対応
         {
             constexpr int n_facecub_diff_min = 1;
             constexpr int n_facecub_diff_max = 6;
@@ -206,6 +209,7 @@ template <int order> struct FaceFormulaSearcher {
         if (depth != 0 && n_inner_rotations < max_depth - depth) {
             for (const i8 i : {0, Cube::order - 1}) {
                 for (auto direction = (i8)0; direction < 6; direction++) {
+
                     const auto mov = Move{(Move::Direction)direction, i};
                     if (!can_be_next_move(mov))
                         continue;
@@ -234,6 +238,28 @@ template <int order> struct FaceFormulaSearcher {
         if (n_inner_rotations < max_depth - depth - 1 &&
             n_inner_rotations < kMaxNInnerRotations) {
             for (auto i = (i8)1; i < Cube::order - 1; i++) {
+                // 端から順番に回していく
+                bool flag_new_slice = false;
+                if constexpr (order % 2 == 1) {
+                    // odd
+                    if ((i != order / 2) && (slice_index_max + 2 <= i) &&
+                        (i <= order - slice_index_max - 2)) {
+                        continue;
+                    }
+                    if ((i != order / 2) && (i == slice_index_max + 1)) {
+                        flag_new_slice = true;
+                    }
+                } else {
+                    // even
+                    if ((slice_index_max + 2 <= i) &&
+                        (i <= order - slice_index_max - 2)) {
+                        continue;
+                    }
+                    if ((i < order / 2) && (i == slice_index_max + 1)) {
+                        flag_new_slice = true;
+                    }
+                }
+
                 for (auto direction = (i8)0; direction < 6; direction++) {
                     const auto mov = Move{(Move::Direction)direction, i};
                     if (!can_be_next_move(mov))
@@ -250,8 +276,14 @@ template <int order> struct FaceFormulaSearcher {
                     move_history[depth] = mov;
                     cube.Rotate(mov);
                     depth++;
+                    if (flag_new_slice) {
+                        slice_index_max++;
+                    }
                     Dfs();
                     depth--;
+                    if (flag_new_slice) {
+                        slice_index_max--;
+                    }
                     cube.Rotate(inv_mov);
                     n_inner_rotations--;
                 next_incremental_inner_rotation_move:;
