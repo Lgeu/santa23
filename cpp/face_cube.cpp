@@ -1,24 +1,38 @@
 #include <algorithm>
+#include <cmath>
+#include <functional>
 #include <mutex>
 #include <thread>
+#include <tuple>
 
 #include "cube.cpp"
 
+using std::fill;
 using std::lock_guard;
 using std::max;
 using std::min;
 using std::move;
 using std::mutex;
+using std::pow;
+using std::reference_wrapper;
 using std::reverse;
 using std::thread;
+using std::tuple;
 using std::unique_lock;
 
 std::mutex mtx;
+
+constexpr int Order = 19;
+constexpr int OrderFormula = 7;
+// メモリ削減のため面の情報は落とす
+using SliceMap = array<int, Order - 2>;
+using SliceMapInv = array<vector<int>, OrderFormula - 2>;
 
 // 面だけのキューブの 1 つの面
 // TODO: 実装
 template <int order, typename ColorType = ColorType6>
 struct FaceCube : public Cube<order, ColorType> {
+    static_assert(order == Order);
     FaceCube() : Cube<order, ColorType>() {}
 
     inline auto ComputeFaceScore(const FaceCube& target) const {
@@ -26,12 +40,12 @@ struct FaceCube : public Cube<order, ColorType> {
         for (auto face_id = 0; face_id < 6; face_id++) {
             for (int y = 1; y < order - 1; y++) {
                 for (int x = 1; x < order - 1; x++) {
-                    score +=
-                        this->Get(face_id, y, x) != target.Get(face_id, y, x);
+                    int coef = 1;
                     if ((order % 2 == 1) && (x == order / 2) &&
                         (y == order / 2))
-                        score += 100 * (this->Get(face_id, y, x) !=
-                                        target.Get(face_id, y, x));
+                        coef = 100;
+                    score += coef * (this->Get(face_id, y, x) !=
+                                     target.Get(face_id, y, x));
                 }
             }
         }
@@ -53,6 +67,70 @@ struct FaceCube : public Cube<order, ColorType> {
 
 using FaceAction = Formula;
 
+template <int order_formula = OrderFormula, int order = Order>
+FaceAction ConvertFaceActionMoveWithSliceMap(
+    const FaceAction& face_action, const array<int, order - 2>& /* slice_map */,
+    const array<vector<int>, order_formula - 2>& slice_map_inv) {
+    auto new_face_action = FaceAction();
+    for (auto mv : face_action.moves) {
+        if (mv.depth == 0) {
+            new_face_action.moves.emplace_back(mv);
+            continue;
+        } else if (mv.depth == order_formula - 1) {
+            mv.depth = order - 1;
+            new_face_action.moves.emplace_back(mv);
+            continue;
+        } else {
+            assert(1 <= mv.depth && mv.depth <= order_formula - 2);
+            assert(slice_map_inv[mv.depth - 1].size() >= 1);
+            int depth_original = mv.depth;
+            for (auto& depth : slice_map_inv[depth_original - 1]) {
+                mv.depth = depth + 1;
+                new_face_action.moves.emplace_back(mv);
+            }
+        }
+    }
+    return new_face_action;
+}
+
+template <int order_formula = OrderFormula, int order = Order>
+FaceAction ConvertFaceActionFaceletChangeWithSliceMap(
+    const FaceAction& face_action, const array<int, order - 2>& slice_map,
+    const array<vector<int>, order_formula - 2>& slice_map_inv) {
+    assert(face_action.use_facelet_changes);
+    auto new_face_action =
+        ConvertFaceActionMoveWithSliceMap<order_formula, order>(
+            face_action, slice_map, slice_map_inv);
+    new_face_action.use_facelet_changes = true;
+    for (const auto& facelet_change : face_action.facelet_changes) {
+        const auto& from_formula = facelet_change.from;
+        const auto& to_formula = facelet_change.to;
+
+        if (from_formula.x == 0 || from_formula.x == order_formula - 1 ||
+            from_formula.y == 0 || from_formula.y == order_formula - 1) {
+            // continue;
+            assert(false);
+        }
+
+        for (const auto& from_x : slice_map_inv[from_formula.x - 1]) {
+            for (const auto& from_y : slice_map_inv[from_formula.y - 1]) {
+                for (const auto& to_x : slice_map_inv[to_formula.x - 1]) {
+                    for (const auto& to_y : slice_map_inv[to_formula.y - 1]) {
+                        const auto from =
+                            FaceletPosition{from_formula.face_id,
+                                            i8(from_y + 1), i8(from_x + 1)};
+                        const auto to = FaceletPosition{
+                            to_formula.face_id, i8(to_y + 1), i8(to_x + 1)};
+                        new_face_action.facelet_changes.emplace_back(
+                            FaceAction::FaceletChange{from, to});
+                    }
+                }
+            }
+        }
+    }
+    return new_face_action;
+}
+
 template <int order> struct FaceState {
     using FaceCube = ::FaceCube<order>;
     FaceCube cube;
@@ -62,52 +140,162 @@ template <int order> struct FaceState {
     inline FaceState(const FaceCube& cube, const FaceCube& target_cube)
         : cube(cube), score(cube.ComputeFaceScore(target_cube)), n_moves() {}
 
-    // inplace に変更する
     inline void Apply(const FaceAction& action, const FaceCube& target_cube) {
         cube.Rotate(action);
         score = cube.ComputeFaceScore(target_cube);
         n_moves += action.Cost();
     }
 
-    // action, target_cube から score を計算する
+    // inplace に変更する
+    inline void Apply(const FaceAction& action, const FaceCube& target_cube,
+                      const SliceMap& slice_map,
+                      const SliceMapInv& slice_map_inv) {
+        auto action_new =
+            ConvertFaceActionMoveWithSliceMap(action, slice_map, slice_map_inv);
+        cube.Rotate(action_new);
+        score = cube.ComputeFaceScore(target_cube);
+        n_moves += action.Cost();
+    }
+
     inline int ScoreWhenApplied(const FaceAction& action,
                                 const FaceCube& target_cube) {
+
+        assert(action.use_facelet_changes);
+        int score_when_applied = score;
+        for (const auto& facelet_change : action.facelet_changes) {
+            const auto& from = facelet_change.from;
+            const auto& to = facelet_change.to;
+
+            if (from.x == 0 || from.x == order - 1 || from.y == 0 ||
+                from.y == order - 1) {
+                // continue;
+                assert(false);
+            }
+
+            const auto color_from_target = target_cube.Get(from);
+            const auto color_to_target = target_cube.Get(to);
+
+            if (color_from_target == color_to_target)
+                continue;
+
+            const auto color_from = cube.Get(from);
+
+            int coef = 1;
+            if (((order & 1) == 1) && (from.x * 2 + 1 == order) &&
+                (from.y * 2 + 1 == order))
+                coef = 100;
+
+            score_when_applied += (int(color_from == color_from_target) -
+                                   int(color_from == color_to_target)) *
+                                  coef;
+        }
+        return score_when_applied;
+    }
+
+    // action, target_cube から score を計算する
+    inline int ScoreWhenApplied(const FaceAction& action,
+                                const FaceCube& target_cube,
+                                const SliceMap& slice_map,
+                                const SliceMapInv& slice_map_inv) {
         int score_when_applied;
 
         if (action.use_facelet_changes) {
+
+            // for (int i = 0; i < Order - 2; i++) {
+            //     cerr << slice_map[i] << " ";
+            // }
+            // cerr << endl;
+            // action.Print(cerr);
+
             score_when_applied = score;
             for (const auto& facelet_change : action.facelet_changes) {
-                const auto& from = facelet_change.from;
-                const auto& to = facelet_change.to;
+                const auto& from_formula = facelet_change.from;
+                const auto& to_formula = facelet_change.to;
 
-                if (from.x == 0 || from.x == order - 1 || from.y == 0 ||
-                    from.y == order - 1) {
+                if (from_formula.x == 0 || from_formula.x == OrderFormula - 1 ||
+                    from_formula.y == 0 || from_formula.y == OrderFormula - 1) {
                     // continue;
                     assert(false);
                 }
 
-                const auto color_from_target = target_cube.Get(from);
-                const auto color_to_target = target_cube.Get(to);
+                // for(const auto& from_x : slice_map_inv[from_formula.x - 1]) {
+                //     for(const auto& from_y : slice_map_inv[from_formula.y -
+                //     1]) {
+                //         for(const auto& to_x : slice_map_inv[to_formula.x -
+                //         1]) {
+                //             for(const auto& to_y : slice_map_inv[to_formula.y
+                //             - 1]) {
+                // cerr << endl;
+                // cerr << (int)from_formula.x << " " << (int)from_formula.y <<
+                // " "
+                //      << (int)to_formula.x << " " << (int)to_formula.y <<
+                //      endl;
+                for (const auto& from_x : slice_map_inv[from_formula.x - 1]) {
+                    for (const auto& from_y :
+                         slice_map_inv[from_formula.y - 1]) {
+                        for (const auto& to_x :
+                             slice_map_inv[to_formula.x - 1]) {
+                            for (const auto& to_y :
+                                 slice_map_inv[to_formula.y - 1]) {
+                                // cerr << from_x + 1 << " " << from_y + 1 << "
+                                // "
+                                //      << to_x + 1 << " " << to_y + 1 << " : "
+                                //      << (int)from_formula.x << " "
+                                //      << (int)from_formula.y << " "
+                                //      << (int)to_formula.x << " "
+                                //      << (int)to_formula.y << endl;
+                                const auto from = FaceletPosition{
+                                    from_formula.face_id, i8(from_y + 1),
+                                    i8(from_x + 1)};
+                                const auto to =
+                                    FaceletPosition{to_formula.face_id,
+                                                    i8(to_y + 1), i8(to_x + 1)};
+                                const auto color_from_target =
+                                    target_cube.Get(from);
+                                const auto color_to_target =
+                                    target_cube.Get(to);
+                                if (color_from_target == color_to_target)
+                                    continue;
+                                const auto color_from = cube.Get(from);
 
-                if (color_from_target == color_to_target)
-                    continue;
+                                int coef = 1;
+                                if (((Order & 1) == 1) &&
+                                    (from.x * 2 + 1 == Order) &&
+                                    (from.y * 2 + 1 == Order))
+                                    coef = 100;
 
-                const auto color_from = cube.Get(from);
+                                score_when_applied +=
+                                    (int(color_from == color_from_target) -
+                                     int(color_from == color_to_target)) *
+                                    coef;
+                            }
+                        }
+                    }
+                }
 
-                int coef = 1;
-                if (((order & 1) == 1) && (from.x * 2 + 1 == order) &&
-                    (from.y * 2 + 1 == order))
-                    coef = 100;
+                // const auto color_from_target = target_cube.Get(from);
+                // const auto color_to_target = target_cube.Get(to);
 
-                score_when_applied += (int(color_from == color_from_target) -
-                                       int(color_from == color_to_target)) *
-                                      coef;
+                // if (color_from_target == color_to_target)
+                //     continue;
+
+                // const auto color_from = cube.Get(from);
+
+                // int coef = 1;
+                // if (((order & 1) == 1) && (from.x * 2 + 1 == order) &&
+                //     (from.y * 2 + 1 == order))
+                //     coef = 100;
+
+                // score_when_applied += (int(color_from == color_from_target) -
+                //                        int(color_from == color_to_target)) *
+                //                       coef;
             }
         } else {
-            assert(false);
-            cube.Rotate(action);
+            auto action_new = ConvertFaceActionMoveWithSliceMap(
+                action, slice_map, slice_map_inv);
+            cube.Rotate(action_new);
             score_when_applied = cube.ComputeFaceScore(target_cube);
-            cube.RotateInv(action);
+            cube.RotateInv(action_new);
         }
         return score_when_applied;
     }
@@ -115,30 +303,73 @@ template <int order> struct FaceState {
 
 // yield を使って EdgeAction を生成する？
 template <int order> struct FaceActionCandidateGenerator {
+    static_assert(order == Order);
     using FaceCube = ::FaceCube<order>;
     using FaceState = ::FaceState<order>;
-    vector<FaceAction> actions;
+    vector<SliceMap> slice_maps;        // array?
+    vector<SliceMapInv> slice_maps_inv; // array?
+    // vector<tuple<FaceAction, SliceMap&, SliceMapInv&>> actions;
+    // vector<tuple<FaceAction, reference_wrapper<SliceMap>,
+    //              reference_wrapper<SliceMapInv>>>
+    //     actions;
+    vector<tuple<FaceAction, FaceAction, SliceMap, SliceMapInv, bool>>
+        actions; // TODO 参照
+                 // bool
+                 // はcubeサイズを大きくした時に変更箇所数が変わらなければtrue
+
+    void DfsSliceMaps(vector<int> used, SliceMap& slice_map,
+                      SliceMapInv& slice_map_inv, int depth, int max_depth) {
+        if (depth >= 0) {
+            // 追加
+            slice_maps.push_back(slice_map);
+            slice_maps_inv.push_back(slice_map_inv);
+        }
+        if (depth == max_depth) {
+            return;
+        }
+        for (int i = 0; i < order - 2; i++) {
+            // for (int i = 0; i < order / 2 - 1; i++) {
+            if (used[i])
+                continue;
+            if ((Order % 2 == 1) && (i == order / 2 - 1))
+                continue;
+            // ペアで更新
+            slice_map[i] = depth;
+            slice_map_inv[depth].emplace_back(i);
+            slice_map[order - 3 - i] = OrderFormula - 3 - depth;
+            slice_map_inv[OrderFormula - 3 - depth].emplace_back(order - 3 - i);
+            used[i] = 1;
+            used[order - 3 - i] = 1;
+            DfsSliceMaps(used, slice_map, slice_map_inv, depth + 1, max_depth);
+            slice_map[i] = -1;
+            slice_map_inv[depth].pop_back();
+            used[i] = 0;
+            slice_map[order - 3 - i] = -1;
+            slice_map_inv[OrderFormula - 3 - depth].pop_back();
+            used[order - 3 - i] = 0;
+        }
+    }
+
+    FaceActionCandidateGenerator() : slice_maps(), slice_maps_inv(), actions() {
+        // slice_maps と slice_maps_inv を生成する
+        vector<int> used(order - 2, 0);
+        SliceMap slice_map;
+        SliceMapInv slice_map_inv;
+        fill(slice_map.begin(), slice_map.end(), -1);
+        DfsSliceMaps(used, slice_map, slice_map_inv, 0, OrderFormula / 2 - 1);
+        if constexpr (order % 2 == 1) {
+            used[order / 2 - 1] = 1;
+            slice_map[order / 2 - 1] = OrderFormula / 2 - 1;
+            slice_map_inv[OrderFormula / 2 - 1].emplace_back(order / 2 - 1);
+            DfsSliceMaps(used, slice_map, slice_map_inv, 0,
+                         OrderFormula / 2 - 1);
+        }
+    }
 
     // ファイルから手筋を読み取る
     // ファイルには f1.d0.-r0.-f1 みたいなのが 1 行に 1 つ書かれている想定
     inline void FromFile(const string& filename) {
         actions.clear();
-
-        // // 面の回転 1 つだけからなる手筋を別途加える
-        // 全回転を追加
-        for (auto i = 0; i < 6; i++) {
-            for (int j = 0; j < order; j++) {
-                actions.emplace_back(
-                    vector<Move>{Move{(Move::Direction)i, (i8)j}});
-                actions.back()
-                    .EnableFaceletChangesWithNoSameRaw<
-                        Cube<order, ColorType24>>();
-                actions.back()
-                    .DisableFaceletChangeEdgeCorner<Cube<order, ColorType24>>();
-                actions.back()
-                    .DisableFaceletChangeSameFace<Cube<order, ColorType6>>();
-            }
-        }
 
         // ファイルから読み取る
         auto ifs = ifstream(filename);
@@ -150,13 +381,144 @@ template <int order> struct FaceActionCandidateGenerator {
         while (getline(ifs, line)) {
             if (line.empty() || line[0] == '#')
                 continue;
-            actions.emplace_back(line);
-            actions.back()
-                .EnableFaceletChangesWithNoSameRaw<Cube<order, ColorType24>>();
-            actions.back()
-                .DisableFaceletChangeEdgeCorner<Cube<order, ColorType24>>();
-            actions.back()
-                .DisableFaceletChangeSameFace<Cube<order, ColorType6>>();
+            FaceAction faceaction_formula(line);
+            faceaction_formula.EnableFaceletChangesWithNoSameRaw<
+                Cube<OrderFormula, ColorType24>>();
+            faceaction_formula.DisableFaceletChangeEdgeCorner<
+                Cube<OrderFormula, ColorType24>>();
+            faceaction_formula
+                .DisableFaceletChangeSameFace<Cube<OrderFormula, ColorType6>>();
+            // if (faceaction_formula.facelet_changes.size() > 6) {
+            //     continue;
+            //     // if (faceaction_formula.moves.size() == 1 &&
+            //     //     (faceaction_formula.moves[0].depth == 0 ||
+            //     //      faceaction_formula.moves[0].depth == OrderFormula -
+            //     1)) {
+            //     //     // 回転
+            //     // } else {
+            //     //     // 緊急回避
+            //     //     // TODO FIX
+            //     //     continue;
+            //     // }
+            // }
+            vector<int> vec_use_slices(OrderFormula - 2, 0);
+            for (Move& mv : faceaction_formula.moves) {
+                if (1 <= mv.depth && mv.depth <= OrderFormula - 2) {
+                    vec_use_slices[mv.depth - 1] = 1;
+                    vec_use_slices[OrderFormula - 2 - mv.depth] = 1;
+                }
+            }
+
+            bool flag_scale = true;
+            {
+                array<int, OrderFormula> slice_map;
+                array<vector<int>, OrderFormula - 2> slice_map_inv;
+                for (int i = 0; i < OrderFormula / 2 - 1; i++) {
+                    slice_map[i] = i;
+                    slice_map_inv[i].emplace_back(i);
+                    slice_map[OrderFormula - 1 - i] = OrderFormula - 3 - i;
+                    slice_map_inv[OrderFormula - 3 - i].emplace_back(
+                        OrderFormula - 1 - i);
+                }
+                if (OrderFormula % 2 == 1) {
+                    slice_map[OrderFormula / 2] = OrderFormula / 2 - 1;
+                    slice_map_inv[OrderFormula / 2 - 1].emplace_back(
+                        OrderFormula / 2);
+                }
+                FaceAction action_new =
+                    ConvertFaceActionMoveWithSliceMap<OrderFormula,
+                                                      OrderFormula + 2>(
+                        faceaction_formula, slice_map, slice_map_inv);
+                action_new.EnableFaceletChangesWithNoSameRaw<
+                    Cube<OrderFormula + 2, ColorType24>>();
+                action_new.DisableFaceletChangeEdgeCorner<
+                    Cube<OrderFormula + 2, ColorType24>>();
+                action_new.DisableFaceletChangeSameFace<
+                    Cube<OrderFormula + 2, ColorType6>>();
+                if (action_new.facelet_changes.size() !=
+                    faceaction_formula.facelet_changes.size()) {
+                    flag_scale = false;
+                }
+            }
+
+            // int cnt = 0;
+            for (int i = 0; i < (int)slice_maps.size(); i++) {
+                bool flag_use = true;
+                auto& slice_map = slice_maps[i];
+                auto& slice_map_inv = slice_maps_inv[i];
+                for (int j = 0; j < OrderFormula - 2; j++) {
+                    if (vec_use_slices[j] != (slice_map_inv[j].size() > 0)) {
+                        flag_use = false;
+                        break;
+                    }
+                }
+                if (!flag_use)
+                    continue;
+                {
+                    auto slice_map = slice_maps[i];
+                    auto slice_map_inv = slice_maps_inv[i];
+                    if (Order % 2 == 1) {
+                        if (slice_map[Order / 2 - 1] == -1) {
+                            slice_map[Order / 2 - 1] = OrderFormula / 2 - 1;
+                            slice_map_inv[OrderFormula / 2 - 1].emplace_back(
+                                Order / 2 - 1);
+                        }
+                    }
+
+                    if (flag_scale) {
+                        FaceAction faceaction =
+                            ConvertFaceActionFaceletChangeWithSliceMap<
+                                OrderFormula, Order>(faceaction_formula,
+                                                     slice_map, slice_map_inv);
+                        actions.emplace_back(faceaction, faceaction_formula,
+                                             slice_map, slice_map_inv, true);
+                        // actions.emplace_back(faceaction_formula,
+                        // std::ref(slice_map),
+                        //                      std::ref(slice_map_inv));
+                        // actions.push_back({faceaction_formula,
+                        // std::ref(slice_map),
+                        //                    std::ref(slice_map_inv)});
+
+                        // cnt++;
+                        // {
+                        //     auto [action, slice_map, slice_map_inv] =
+                        //         actions[actions.size() - 1];
+                        //     cerr << line << endl;
+                        //     for (int i = 0; i < Order - 2; i++) {
+                        //         cerr << slice_map[i] << " ";
+                        //     }
+                        //     cerr << endl;
+                        // }
+                    } else {
+                        // faceaction_formula action_new =
+                        //     Convertfaceaction_formulaMoveWithSliceMap<OrderFormula,
+                        //                                       Order>(
+                        //         faceaction_formula, slice_map,
+                        //         slice_map_inv);
+                        // action_new.EnableFaceletChangesWithNoSameRaw<
+                        //     Cube<Order, ColorType24>>();
+                        // action_new.DisableFaceletChangeEdgeCorner<
+                        //     Cube<Order, ColorType24>>();
+                        // action_new.DisableFaceletChangeSameFace<
+                        //     Cube<Order, ColorType6>>();
+
+                        FaceAction faceaction =
+                            ConvertFaceActionMoveWithSliceMap<OrderFormula,
+                                                              Order>(
+                                faceaction_formula, slice_map, slice_map_inv);
+                        faceaction.EnableFaceletChangesWithNoSameRaw<
+                            Cube<Order, ColorType24>>();
+                        faceaction.DisableFaceletChangeEdgeCorner<
+                            Cube<Order, ColorType24>>();
+                        faceaction.DisableFaceletChangeSameFace<
+                            Cube<Order, ColorType6>>();
+                        actions.emplace_back(faceaction, faceaction_formula,
+                                             slice_map, slice_map_inv, false);
+                    }
+                }
+            }
+            // cerr << cnt << endl;
+            // cerr << endl;
         }
 
         // TODO: 重複があるかもしれないので確認した方が良い
@@ -170,12 +532,23 @@ template <int order> struct FaceNode {
     FaceState state;
     shared_ptr<FaceNode> parent;
     FaceAction last_action;
+    SliceMap slice_map;
+    SliceMapInv slice_map_inv;
+    bool flag_scale;
     inline FaceNode(const FaceState& state, const shared_ptr<FaceNode>& parent,
                     const FaceAction& last_action)
-        : state(state), parent(parent), last_action(last_action) {}
+        : state(state), parent(parent), last_action(last_action), slice_map(),
+          slice_map_inv(), flag_scale(false) {}
+    inline FaceNode(const FaceState& state, const shared_ptr<FaceNode>& parent,
+                    const FaceAction& last_action, const SliceMap& slice_map,
+                    const SliceMapInv& slice_map_inv, bool flag_scale)
+        : state(state), parent(parent), last_action(last_action),
+          slice_map(slice_map), slice_map_inv(slice_map_inv),
+          flag_scale(flag_scale) {}
 };
 
 template <int order> struct FaceBeamSearchSolver {
+    static_assert(order == Order);
     using FaceCube = ::FaceCube<order>;
     using FaceState = ::FaceState<order>;
     using FaceNode = ::FaceNode<order>;
@@ -212,17 +585,27 @@ template <int order> struct FaceBeamSearchSolver {
             nodes[0][0] = start_node;
         }
 
+        assert(n_threads == 1);
+
         assert(n_threads >= 1);
         vector<thread> threads;
 
-        int max_action_cost = 0;
-        for (const auto& action : action_candidate_generator.actions) {
-            max_action_cost = max(max_action_cost, action.Cost());
-        }
+        // int max_action_cost = 0;
+        // if (n_threads >= 2) {
+        //     for (const auto& action : action_candidate_generator.actions) {
+        //         max_action_cost = max(max_action_cost, action.Cost());
+        //     }
+        // }
 
         for (auto current_cost = 0; current_cost < 100000; current_cost++) {
             auto current_minimum_score = 9999;
-            nodes[current_cost][0]->state.cube.Display();
+            cerr << format("current_cost={} nodes={}", current_cost,
+                           nodes[current_cost].size())
+                 << endl;
+            if (nodes[current_cost].empty()) {
+                continue;
+            }
+            // nodes[current_cost][0]->state.cube.Display();
             for (const auto& node : nodes[current_cost]) {
                 if (!node)
                     continue;
@@ -234,155 +617,114 @@ template <int order> struct FaceBeamSearchSolver {
                 }
 
                 if (n_threads == 1) {
-                    for (const auto& action :
+                    for (const auto& [action, action_formula, slice_map,
+                                      slice_map_inv, flag_scale] :
                          action_candidate_generator.Generate(node->state)) {
                         int new_n_moves = node->state.n_moves + action.Cost();
                         if (new_n_moves >= (int)nodes.size())
                             nodes.resize(new_n_moves + 1);
                         if ((int)nodes[new_n_moves].size() < beam_width) {
                             auto new_state = node->state;
+                            // new_state.Apply(action, target_cube, slice_map,
+                            //                 slice_map_inv);
                             new_state.Apply(action, target_cube);
                             nodes[new_state.n_moves].emplace_back(
-                                new FaceNode(new_state, node, action));
+                                new FaceNode(new_state, node, action, slice_map,
+                                             slice_map_inv, flag_scale));
                         } else {
+                            if (false) {
+                                auto new_state = node->state;
+                                new_state.Apply(action, target_cube);
+                                int new_score_slow = new_state.score;
+                                // const auto idx = rng.Next() % beam_width;
+                                // if (new_score_slow <
+                                //     nodes[new_n_moves][idx]->state.score) {
+                                //     nodes[new_n_moves][idx].reset(
+                                //         new FaceNode(new_state, node, action,
+                                //                      slice_map,
+                                //                      slice_map_inv));
+                                // }
+
+                                FaceAction action_new =
+                                    ConvertFaceActionMoveWithSliceMap<
+                                        OrderFormula, Order>(action, slice_map,
+                                                             slice_map_inv);
+
+                                action_new.Print(cerr);
+                                cerr << endl;
+                                action_new.EnableFaceletChangesWithNoSameRaw<
+                                    Cube<Order, ColorType24>>();
+                                action_new.DisableFaceletChangeEdgeCorner<
+                                    Cube<Order, ColorType24>>();
+                                action_new.DisableFaceletChangeSameFace<
+                                    Cube<Order, ColorType6>>();
+                                for (auto& facelet_change :
+                                     action_new.facelet_changes) {
+                                    cerr << (int)facelet_change.from.face_id
+                                         << " " << (int)facelet_change.from.y
+                                         << " " << (int)facelet_change.from.x
+                                         << " : "
+                                         << (int)facelet_change.to.face_id
+                                         << " " << (int)facelet_change.to.y
+                                         << " " << (int)facelet_change.to.x
+                                         << endl;
+                                }
+                                action.Print(cerr);
+                                cerr << endl;
+
+                                FaceAction action_tmp = action;
+                                action_tmp.EnableFaceletChangesWithNoSameRaw<
+                                    Cube<OrderFormula, ColorType24>>();
+                                action_tmp.DisableFaceletChangeEdgeCorner<
+                                    Cube<OrderFormula, ColorType24>>();
+                                action_tmp.DisableFaceletChangeSameFace<
+                                    Cube<OrderFormula, ColorType6>>();
+                                for (auto& facelet_change :
+                                     action_tmp.facelet_changes) {
+                                    cerr << (int)facelet_change.from.face_id
+                                         << " " << (int)facelet_change.from.y
+                                         << " " << (int)facelet_change.from.x
+                                         << " : "
+                                         << (int)facelet_change.to.face_id
+                                         << " " << (int)facelet_change.to.y
+                                         << " " << (int)facelet_change.to.x
+                                         << endl;
+                                }
+                                cerr << endl;
+                                int new_score = node->state.ScoreWhenApplied(
+                                    action, target_cube, slice_map,
+                                    slice_map_inv);
+                                cerr << new_score << " " << new_score_slow
+                                     << endl;
+                                cerr << endl;
+
+                                assert(new_score == new_score_slow);
+                            }
+
+                            // int new_score = node->state.ScoreWhenApplied(
+                            //     action, target_cube, slice_map,
+                            //     slice_map_inv);
                             int new_score = node->state.ScoreWhenApplied(
                                 action, target_cube);
+
                             const auto idx = rng.Next() % beam_width;
                             if (new_score <
                                 nodes[new_n_moves][idx]->state.score) {
                                 auto new_state = node->state;
+                                // new_state.Apply(action, target_cube,
+                                // slice_map,
+                                //                 slice_map_inv);
                                 new_state.Apply(action, target_cube);
-                                nodes[new_state.n_moves][idx].reset(
-                                    new FaceNode(new_state, node, action));
+                                nodes[new_n_moves][idx].reset(new FaceNode(
+                                    new_state, node, action, slice_map,
+                                    slice_map_inv, flag_scale));
                             }
                         }
                     }
+
+                    // TODO 並列化
                 } else {
-                    int n_actions =
-                        (int)action_candidate_generator.Generate(node->state)
-                            .size();
-                    vector<vector<vector<shared_ptr<FaceNode>>>> nodes_memo(
-                        n_threads,
-                        vector(beam_width,
-                               vector<shared_ptr<FaceNode>>(max_action_cost + 1,
-                                                            start_node)));
-
-                    for (int i = 0; i < n_threads; i++) {
-                        thread th(
-                            [&](int ii) {
-                                int idx_low = ii * n_actions / n_threads;
-                                int idx_high =
-                                    min((ii + 1) * n_actions / n_threads,
-                                        n_actions);
-                                for (int idx_action = idx_low;
-                                     idx_action < idx_high; idx_action++) {
-                                    auto& action =
-                                        action_candidate_generator.Generate(
-                                            node->state)[idx_action];
-
-                                    // int new_n_moves =
-                                    //     node->state.n_moves + action.Cost();
-                                    // if (new_n_moves >= (int)nodes.size()) {
-                                    //     {
-                                    //         // lock_guard<mutex> lock(mtx);
-                                    //         unique_lock<mutex> lock(mtx);
-                                    //         if (new_n_moves >=
-                                    //             (int)nodes.size()) {
-                                    //             nodes.resize(new_n_moves +
-                                    //             1);
-                                    //         }
-                                    //     }
-                                    // }
-                                    // if ((int)nodes[new_n_moves].size() <
-                                    //     beam_width) {
-                                    //     {
-                                    //         // lock_guard<mutex> lock(mtx);
-                                    //         unique_lock<mutex> lock(mtx);
-                                    //         if
-                                    //         ((int)nodes[new_n_moves].size() <
-                                    //             beam_width) {
-
-                                    //             auto new_state = node->state;
-                                    //             new_state.Apply(action,
-                                    //                             target_cube);
-                                    //             nodes[new_state.n_moves]
-                                    //                 .emplace_back(new
-                                    //                 FaceNode(
-                                    //                     new_state, node,
-                                    //                     action));
-                                    //             continue;
-                                    //         }
-                                    //     }
-                                    // }
-
-                                    int new_score =
-                                        node->state.ScoreWhenApplied(
-                                            action, target_cube);
-                                    int action_cost = action.Cost();
-                                    const auto idx = rng.Next() % beam_width;
-                                    if (nodes_memo[ii][idx][action_cost] ==
-                                            nullptr ||
-                                        new_score <
-                                            nodes_memo[ii][idx][action_cost]
-                                                ->state.score) {
-                                        auto new_state = node->state;
-                                        new_state.Apply(action, target_cube);
-                                        nodes_memo[ii][idx][action_cost].reset(
-                                            new FaceNode(new_state, node,
-                                                         action));
-                                    }
-                                    // if (new_score <
-                                    //     nodes[new_n_moves][idx]->state.score)
-                                    //     {
-                                    //     {
-                                    //         // lock_guard<mutex> lock(mtx);
-                                    //         unique_lock<mutex> lock(mtx);
-                                    //         // cerr << new_score << " "
-                                    //         //      <<
-                                    //         nodes[new_n_moves][idx]
-                                    //         //             ->state.score
-                                    //         //      << endl;
-                                    //         if (new_score <
-                                    //             nodes[new_n_moves][idx]
-                                    //                 ->state.score) {
-                                    //             auto new_state = node->state;
-                                    //             new_state.Apply(action,
-                                    //                             target_cube);
-                                    //             //
-                                    //             nodes[new_state.n_moves][idx]
-                                    //             //     .reset(new FaceNode(
-                                    //             //         new_state, node,
-                                    //             //         action));
-                                    //         }
-                                    //     }
-                                    // }
-                                }
-                            },
-                            i);
-                        threads.emplace_back(move(th));
-                    }
-                    for (auto& th : threads) {
-                        th.join();
-                    }
-                    threads.clear();
-
-                    // update nodes
-                    for (int i = 0; i < n_threads; i++) {
-                        for (int j = 0; j < beam_width; j++) {
-                            for (int action_cost = 0;
-                                 action_cost <= max_action_cost;
-                                 action_cost++) {
-                                if (nodes_memo[i][j][action_cost] &&
-                                    nodes[current_cost + action_cost][j] &&
-                                    nodes_memo[i][j][action_cost]->state.score <
-                                        nodes[current_cost + action_cost][j]
-                                            ->state.score) {
-                                    swap(nodes[current_cost + action_cost][j],
-                                         nodes_memo[i][j][action_cost]);
-                                }
-                            }
-                        }
-                    }
+                    assert(false);
                 }
             }
 
@@ -396,6 +738,7 @@ template <int order> struct FaceBeamSearchSolver {
     }
 };
 
+#ifdef TEST_FACE_CUBE
 [[maybe_unused]] static void TestFaceCube() {
     constexpr auto kOrder = 7;
     const auto moves = {
@@ -412,7 +755,9 @@ template <int order> struct FaceBeamSearchSolver {
     cout << endl;
     formula.Display<FaceCube<kOrder>>();
 }
+#endif
 
+#ifdef TEST_FROM_CUBE
 [[maybe_unused]] static void TestFromCube() {
     auto cube = Cube<5, ColorType6>();
     cube.Reset();
@@ -435,7 +780,9 @@ template <int order> struct FaceBeamSearchSolver {
     converted_face_cube.FromCube(cube);
     converted_face_cube.Display();
 }
+#endif
 
+#ifdef TEST_READ_NNN
 [[maybe_unused]] static void TestReadNNN() {
     const auto filename = "in/input_example_1.nnn";
     auto cube = Cube<7, ColorType6>();
@@ -445,7 +792,9 @@ template <int order> struct FaceBeamSearchSolver {
     face_cube.FromCube(cube);
     face_cube.Display();
 }
+#endif
 
+#ifdef GENERATE_TEST_NNN
 [[maybe_unused]] static void GenerateTestNNN() {
     const auto filename = "facecube_test.nnn";
     auto cube = Cube<7, ColorType6>();
@@ -463,7 +812,9 @@ template <int order> struct FaceBeamSearchSolver {
     face_cube.ReadNNN(filename);
     face_cube.Display();
 }
+#endif
 
+#ifdef TEST_FACE_ACTION_CANDIDATE_GENERATOR
 [[maybe_unused]] static void TestFaceActionCandidateGenerator() {
     constexpr auto kOrder = 5;
     const auto formula_file = "out/face_formula_5_4.txt";
@@ -483,13 +834,16 @@ template <int order> struct FaceBeamSearchSolver {
         cout << endl << endl;
     }
 }
+#endif
 
 [[maybe_unused]] static void TestFaceBeamSearch() {
     // constexpr auto kOrder = 9;
     // const auto formula_file = "out/face_formula_9_7.txt";
-    constexpr auto kOrder = 9;
-    const auto formula_file = "out/face_formula_9_7.txt";
-    const auto beam_width = 2;
+    // constexpr auto kOrder = 9;
+    constexpr int kOrder = Order;
+    static_assert(kOrder == Order);
+    const auto formula_file = "out/face_formula_7_8.txt";
+    const auto beam_width = 1;
 
     constexpr int n_threads = 1;
 

@@ -372,6 +372,10 @@ struct Formula {
     vector<FaceletChange> facelet_changes;
     vector<FaceletChangeRaw> facelet_changes_raw;
 
+    inline Formula()
+        : moves(), use_facelet_changes(false), use_facelet_changes_raw(false),
+          facelet_changes(), facelet_changes_raw() {}
+
     inline Formula(const vector<Move>& moves)
         : moves(moves), use_facelet_changes(false),
           use_facelet_changes_raw(false), facelet_changes(),
@@ -435,6 +439,11 @@ struct Formula {
             if (pos != original_pos)
                 facelet_changes.push_back({original_pos, pos});
         }
+    }
+
+    inline void DisableFaceletChanges() {
+        use_facelet_changes = false;
+        facelet_changes.clear();
     }
 
     // FaceletPositionRaw が異なるものだけを残す
