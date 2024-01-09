@@ -32,6 +32,17 @@ using SliceMapInv = array<vector<int>, OrderFormula - 2>;
 
 #ifdef RAINBOW
 using ColorTypeChameleon = ColorType24;
+
+int RainbowDist(int c1, int c2) {
+    if (c1 == c2)
+        return 0;
+    if ((c1 / 4 == c2 / 4) ||
+        (Cube<Order, ColorType6>::GetOppositeFaceId(c1 / 4) == c2 / 4))
+        return 2;
+    else
+        return 1;
+}
+
 #else
 using ColorTypeChameleon = ColorType6;
 #endif
@@ -46,13 +57,13 @@ struct FaceCube : public Cube<order, ColorType> {
     inline auto ComputeFaceScore(const FaceCube& target) const {
         auto score = 0;
 #ifdef RAINBOW
-        FaceCube cube_copy = *this;
+        // FaceCube cube_copy = *this;
         for (auto face_id = 0; face_id < 6; face_id++) {
             assert(target.faces[face_id].GetOrientation() == 0);
-            int initial_orientation = cube_copy.faces[face_id].GetOrientation();
-            while (cube_copy.faces[face_id].GetOrientation() != 0) {
-                cube_copy.faces[face_id].RotateCW(1);
-            }
+            int initial_orientation = this->faces[face_id].GetOrientation();
+            // while (cube_copy.faces[face_id].GetOrientation() != 0) {
+            //     cube_copy.faces[face_id].RotateCW(1);
+            // }
 
             for (int y = 1; y < order - 1; y++) {
                 for (int x = 1; x < order - 1; x++) {
@@ -61,27 +72,31 @@ struct FaceCube : public Cube<order, ColorType> {
                         (y == order / 2))
                         coef = 100;
                     // distance of face
-                    i8 c1 = cube_copy.Get(face_id, y, x).data;
-                    i8 c2 = target.Get(face_id, y, x).data;
+                    i8 c1 = this->Get(face_id, y, x).data;
+                    // i8 c2 = target.Get(face_id, y, x).data;
+                    i8 c2 = target.faces[face_id]
+                                .Get(y, x, initial_orientation)
+                                .data;
 
-                    if (c1 != c2) {
-                        if ((c1 == c2) ||
-                            (Cube<order, ColorType6>::GetOppositeFaceId(
-                                 c1 / 4) == c2 / 4))
-                            score += 2 * coef;
-                        else
-                            score += coef;
-                    }
+                    score += coef * RainbowDist(c1, c2);
+                    // if (c1 != c2) {
+                    //     if ((c1 / 4 == c2 / 4) ||
+                    //         (Cube<order, ColorType6>::GetOppositeFaceId(
+                    //              c1 / 4) == c2 / 4))
+                    //         score += 2 * coef;
+                    //     else
+                    //         score += coef;
+                    // }
+
                     // score += coef;
-
                     // score += coef * FaceCube::GetFaceDistance(c1, c2);
                 }
             }
 
-            while (cube_copy.faces[face_id].GetOrientation() !=
-                   initial_orientation) {
-                cube_copy.faces[face_id].RotateCW(1);
-            }
+            // while (cube_copy.faces[face_id].GetOrientation() !=
+            //        initial_orientation) {
+            //     cube_copy.faces[face_id].RotateCW(1);
+            // }
         }
 #else
         for (auto face_id = 0; face_id < 6; face_id++) {
@@ -99,8 +114,6 @@ struct FaceCube : public Cube<order, ColorType> {
                     //     coef *= 2;
                     // }
 
-                    // score += coef * (this->Get(face_id, y, x) !=
-                    //                  target.Get(face_id, y, x));
                     score += coef * FaceCube::GetFaceDistance(c1, c2);
                 }
             }
@@ -217,7 +230,6 @@ template <int order> struct FaceState {
     // 元から
     inline int ScoreWhenApplied(const FaceAction& action,
                                 const FaceCube& target_cube) {
-
         assert(action.use_facelet_changes);
         int score_when_applied = score;
         for (const auto& facelet_change : action.facelet_changes) {
@@ -230,14 +242,6 @@ template <int order> struct FaceState {
                 assert(false);
             }
 
-            const auto color_from_target = target_cube.Get(from);
-            const auto color_to_target = target_cube.Get(to);
-
-            if (color_from_target == color_to_target)
-                continue;
-
-            const auto color_from = cube.Get(from);
-
             int coef = 1;
             if (((order & 1) == 1) && (from.x * 2 + 1 == order) &&
                 (from.y * 2 + 1 == order))
@@ -246,13 +250,47 @@ template <int order> struct FaceState {
             // score_when_applied += (int(color_from == color_from_target) -
             //                        int(color_from == color_to_target)) *
             //                       coef;
+
+#ifdef RAINBOW
+            const int orientation_from =
+                cube.faces[from.face_id].GetOrientation();
+            const int orientation_to = cube.faces[to.face_id].GetOrientation();
+            const auto color_from_target = target_cube.faces[from.face_id].Get(
+                from.y, from.x, orientation_from);
+            const auto color_to_target =
+                target_cube.faces[to.face_id].Get(to.y, to.x, orientation_to);
+            const auto color_from = cube.Get(from);
+
+            score_when_applied +=
+                (RainbowDist(color_from.data, color_to_target.data) -
+                 RainbowDist(color_from.data, color_from_target.data)) *
+                coef;
+#else
+
+            const auto color_from_target = target_cube.Get(from);
+            const auto color_to_target = target_cube.Get(to);
+
+            if (color_from_target == color_to_target)
+                continue;
+
+            const auto color_from = cube.Get(from);
             score_when_applied +=
                 (FaceCube::GetFaceDistance(color_from.data,
                                            color_to_target.data) -
                  FaceCube::GetFaceDistance(color_from.data,
                                            color_from_target.data)) *
                 coef;
+#endif
         }
+
+        {
+            cube.Rotate(action);
+            int score_when_applied_true = cube.ComputeFaceScore(target_cube);
+            cube.RotateInv(action);
+            assert(score_when_applied == score_when_applied_true);
+            // return score_when_applied;
+        }
+
         return score_when_applied;
     }
 
@@ -263,7 +301,8 @@ template <int order> struct FaceState {
                                 const SliceMapInv& slice_map_inv) {
         int score_when_applied;
 
-        if (action.use_facelet_changes) {
+        // if (action.use_facelet_changes) {
+        if (false) {
 
             // for (int i = 0; i < Order - 2; i++) {
             //     cerr << slice_map[i] << " ";
@@ -314,13 +353,6 @@ template <int order> struct FaceState {
                                 const auto to =
                                     FaceletPosition{to_formula.face_id,
                                                     i8(to_y + 1), i8(to_x + 1)};
-                                const auto color_from_target =
-                                    target_cube.Get(from);
-                                const auto color_to_target =
-                                    target_cube.Get(to);
-                                if (color_from_target == color_to_target)
-                                    continue;
-                                const auto color_from = cube.Get(from);
 
                                 int coef = 1;
                                 if (((Order & 1) == 1) &&
@@ -332,6 +364,33 @@ template <int order> struct FaceState {
                                 //     (int(color_from == color_from_target) -
                                 //      int(color_from == color_to_target)) *
                                 //     coef;
+#ifdef RAINBOW
+                                const int orientation_from =
+                                    cube.faces[from.face_id].GetOrientation();
+                                const int orientation_to =
+                                    cube.faces[to.face_id].GetOrientation();
+                                const auto color_from_target =
+                                    target_cube.faces[from.face_id].Get(
+                                        from.y, from.x, orientation_from);
+                                const auto color_to_target =
+                                    target_cube.faces[to.face_id].Get(
+                                        to.y, to.x, orientation_to);
+                                const auto color_from = cube.Get(from);
+
+                                score_when_applied +=
+                                    (RainbowDist(color_from.data,
+                                                 color_to_target.data) -
+                                     RainbowDist(color_from.data,
+                                                 color_from_target.data)) *
+                                    coef;
+#else
+                                const auto color_from_target =
+                                    target_cube.Get(from);
+                                const auto color_to_target =
+                                    target_cube.Get(to);
+                                if (color_from_target == color_to_target)
+                                    continue;
+                                const auto color_from = cube.Get(from);
                                 score_when_applied +=
                                     (FaceCube::GetFaceDistance(
                                          color_from.data,
@@ -340,6 +399,7 @@ template <int order> struct FaceState {
                                          color_from.data,
                                          color_from_target.data)) *
                                     coef;
+#endif
                             }
                         }
                     }
@@ -458,8 +518,24 @@ template <int order> struct FaceActionCandidateGenerator {
                 Cube<OrderFormula, ColorType24>>();
             faceaction_formula.DisableFaceletChangeEdgeCorner<
                 Cube<OrderFormula, ColorType24>>();
+
+            // if (faceaction_formula.moves.size() == 1) {
+            //     cerr << line << endl;
+            //     for (auto& facelet_change :
+            //          faceaction_formula.facelet_changes) {
+            //         cerr << (int)facelet_change.from.face_id << " "
+            //              << (int)facelet_change.from.y << " "
+            //              << (int)facelet_change.from.x << " : "
+            //              << (int)facelet_change.to.face_id << " "
+            //              << (int)facelet_change.to.y << " "
+            //              << (int)facelet_change.to.x << endl;
+            //     }
+            // }
+
+#ifndef RAINBOW
             faceaction_formula
                 .DisableFaceletChangeSameFace<Cube<OrderFormula, ColorType6>>();
+#endif
             // if (faceaction_formula.facelet_changes.size() > 6) {
             //     continue;
             //     // if (faceaction_formula.moves.size() == 1 &&
@@ -505,8 +581,10 @@ template <int order> struct FaceActionCandidateGenerator {
                     Cube<OrderFormula + 2, ColorType24>>();
                 action_new.DisableFaceletChangeEdgeCorner<
                     Cube<OrderFormula + 2, ColorType24>>();
+#ifndef RAINBOW
                 action_new.DisableFaceletChangeSameFace<
                     Cube<OrderFormula + 2, ColorType6>>();
+#endif
                 if (action_new.facelet_changes.size() !=
                     faceaction_formula.facelet_changes.size()) {
                     flag_scale = false;
@@ -582,8 +660,10 @@ template <int order> struct FaceActionCandidateGenerator {
                             Cube<Order, ColorType24>>();
                         faceaction.DisableFaceletChangeEdgeCorner<
                             Cube<Order, ColorType24>>();
+#ifndef RAINBOW
                         faceaction.DisableFaceletChangeSameFace<
                             Cube<Order, ColorType6>>();
+#endif
                         actions.emplace_back(faceaction, faceaction_formula,
                                              slice_map, slice_map_inv, false);
                     }
@@ -592,6 +672,23 @@ template <int order> struct FaceActionCandidateGenerator {
             // cerr << cnt << endl;
             // cerr << endl;
         }
+
+        // // print
+        // for (auto& action : actions) {
+        //     auto [action_new, action_formula, slice_map, slice_map_inv,
+        //           flag_last_action_scale] = action;
+        //     cerr << endl;
+        //     action_formula.Print(cerr);
+        //     cerr << endl;
+        //     for (auto& facelet_change : action_formula.facelet_changes) {
+        //         cerr << (int)facelet_change.from.face_id << " "
+        //              << (int)facelet_change.from.y << " "
+        //              << (int)facelet_change.from.x << " : "
+        //              << (int)facelet_change.to.face_id << " "
+        //              << (int)facelet_change.to.y << " "
+        //              << (int)facelet_change.to.x << endl;
+        //     }
+        // }
 
         // TODO: 重複があるかもしれないので確認した方が良い
     }
@@ -1196,3 +1293,7 @@ int main() { TestFaceActionCandidateGenerator(); }
 #ifdef TEST_FACE_BEAM_SEARCH
 int main() { TestFaceBeamSearch(); }
 #endif
+
+/*
+Rainbow では面の回転を加えない方が良い？
+*/

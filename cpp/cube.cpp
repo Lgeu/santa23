@@ -541,6 +541,12 @@ struct Formula {
         while (idx < (int)facelet_changes.size()) {
             const auto& facelet_change = facelet_changes[idx];
             if (facelet_change.from.face_id == facelet_change.to.face_id) {
+                // cerr << "DisableFaceletChangeSameFace: "
+                //      << (int)facelet_change.from.face_id << " "
+                //      << (int)facelet_change.from.y << " "
+                //      << (int)facelet_change.from.x << " -> "
+                //      << (int)facelet_change.to.y << " "
+                //      << (int)facelet_change.to.x << endl;
                 facelet_changes[idx] = facelet_changes.back();
                 facelet_changes.pop_back();
             } else {
@@ -657,11 +663,16 @@ template <int order_, typename ColorType_ = ColorType6> struct Cube {
     }
 
     inline static i8 GetFaceDistance(const i8 face_id1, const i8 face_id2) {
-        if (face_id1 == face_id2)
-            return 0;
-        if (face_id1 == GetOppositeFaceId(face_id2))
-            return 2;
-        return 1;
+        if constexpr (is_same_v<ColorType, ColorType6>) {
+            // normal face
+            if (face_id1 == face_id2)
+                return 0;
+            if (face_id1 == GetOppositeFaceId(face_id2))
+                return 2;
+            return 1;
+        } else
+            assert(false);
+        return -1;
     }
 
     inline void Reset() {
