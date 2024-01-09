@@ -22,13 +22,19 @@ using std::unique_lock;
 
 std::mutex mtx;
 
-constexpr int Order = 9;
-constexpr int OrderFormula = 7;
-const auto formula_file = "out/face_formula_7_8.txt";
+constexpr int Order = 5;
+constexpr int OrderFormula = 5;
+const auto formula_file = "out/face_formula_5_7.txt";
 constexpr bool flag_parallel = true;
 // メモリ削減のため面の情報は落とす
 using SliceMap = array<int, Order - 2>;
 using SliceMapInv = array<vector<int>, OrderFormula - 2>;
+
+#ifdef RAINBOW
+using ColorTypeChameleon = ColorType24;
+#else
+using ColorTypeChameleon = ColorType6;
+#endif
 
 // 面だけのキューブの 1 つの面
 // TODO: 実装
@@ -39,6 +45,45 @@ struct FaceCube : public Cube<order, ColorType> {
 
     inline auto ComputeFaceScore(const FaceCube& target) const {
         auto score = 0;
+#ifdef RAINBOW
+        FaceCube cube_copy = *this;
+        for (auto face_id = 0; face_id < 6; face_id++) {
+            assert(target.faces[face_id].GetOrientation() == 0);
+            int initial_orientation = cube_copy.faces[face_id].GetOrientation();
+            while (cube_copy.faces[face_id].GetOrientation() != 0) {
+                cube_copy.faces[face_id].RotateCW(1);
+            }
+
+            for (int y = 1; y < order - 1; y++) {
+                for (int x = 1; x < order - 1; x++) {
+                    int coef = 1;
+                    if ((order % 2 == 1) && (x == order / 2) &&
+                        (y == order / 2))
+                        coef = 100;
+                    // distance of face
+                    i8 c1 = cube_copy.Get(face_id, y, x).data;
+                    i8 c2 = target.Get(face_id, y, x).data;
+
+                    if (c1 != c2) {
+                        if ((c1 == c2) ||
+                            (Cube<order, ColorType6>::GetOppositeFaceId(
+                                 c1 / 4) == c2 / 4))
+                            score += 2 * coef;
+                        else
+                            score += coef;
+                    }
+                    // score += coef;
+
+                    // score += coef * FaceCube::GetFaceDistance(c1, c2);
+                }
+            }
+
+            while (cube_copy.faces[face_id].GetOrientation() !=
+                   initial_orientation) {
+                cube_copy.faces[face_id].RotateCW(1);
+            }
+        }
+#else
         for (auto face_id = 0; face_id < 6; face_id++) {
             for (int y = 1; y < order - 1; y++) {
                 for (int x = 1; x < order - 1; x++) {
@@ -60,10 +105,11 @@ struct FaceCube : public Cube<order, ColorType> {
                 }
             }
         }
+#endif
         return score;
     }
 
-    inline void FromCube(const Cube<order, ColorType6>& rhs) {
+    inline void FromCube(const Cube<order, ColorType>& rhs) {
         for (auto face_id = 0; face_id < 6; face_id++) {
             // for (int y = 1; y < order - 1; y++) {
             //     for (int x = 1; x < order - 1; x++) {
@@ -143,7 +189,7 @@ FaceAction ConvertFaceActionFaceletChangeWithSliceMap(
 }
 
 template <int order> struct FaceState {
-    using FaceCube = ::FaceCube<order>;
+    using FaceCube = ::FaceCube<order, ColorTypeChameleon>;
     FaceCube cube;
     int score;   // target との距離
     int n_moves; // これまでに回した回数
@@ -330,7 +376,7 @@ template <int order> struct FaceState {
 // yield を使って EdgeAction を生成する？
 template <int order> struct FaceActionCandidateGenerator {
     static_assert(order == Order);
-    using FaceCube = ::FaceCube<order>;
+    using FaceCube = ::FaceCube<order, ColorTypeChameleon>;
     using FaceState = ::FaceState<order>;
     vector<SliceMap> slice_maps;        // array?
     vector<SliceMapInv> slice_maps_inv; // array?
@@ -580,7 +626,7 @@ template <int order> struct FaceNode {
 
 template <int order> struct FaceBeamSearchSolver {
     static_assert(order == Order);
-    using FaceCube = ::FaceCube<order>;
+    using FaceCube = ::FaceCube<order, ColorTypeChameleon>;
     using FaceState = ::FaceState<order>;
     using FaceNode = ::FaceNode<order>;
     using FaceActionCandidateGenerator = ::FaceActionCandidateGenerator<order>;
@@ -641,7 +687,7 @@ template <int order> struct FaceBeamSearchSolver {
             if (nodes[current_cost].empty()) {
                 continue;
             }
-            // nodes[current_cost][0]->state.cube.Display(cerr);
+            nodes[current_cost][0]->state.cube.Display(cerr);
             for (const auto& node : nodes[current_cost]) {
                 if (!node)
                     continue;
@@ -741,6 +787,21 @@ template <int order> struct FaceBeamSearchSolver {
                             // int new_score = node->state.ScoreWhenApplied(
                             //     action, target_cube, slice_map,
                             //     slice_map_inv);
+                            //
+
+#ifdef NAIVE
+                            auto new_state = node->state;
+                            new_state.Apply(action, target_cube);
+                            int new_score = new_state.score;
+                            const auto idx = rng.Next() % beam_width;
+                            if (new_score <
+                                nodes[new_n_moves][idx]->state.score) {
+                                nodes[new_n_moves][idx].reset(new FaceNode(
+                                    new_state, node, action, action_formula,
+                                    slice_map, slice_map_inv,
+                                    flag_last_action_scale));
+                            }
+#else
                             int new_score = node->state.ScoreWhenApplied(
                                 action, target_cube);
 
@@ -757,10 +818,12 @@ template <int order> struct FaceBeamSearchSolver {
                                     slice_map, slice_map_inv,
                                     flag_last_action_scale));
                             }
+#endif
                         }
                     }
 
                     // TODO 並列化
+#ifndef NAIVE
                     if constexpr (flag_parallel)
                         if (node->parent) {
                             // action を全探索
@@ -928,6 +991,7 @@ template <int order> struct FaceBeamSearchSolver {
                                 }
                             }
                         }
+#endif
 
                 } else {
                     assert(false);
@@ -1077,7 +1141,7 @@ template <int order> struct FaceBeamSearchSolver {
         // initial_cube.FromCube(cube);
     }
 
-    // initial_cube.Display(cout);
+    initial_cube.Display(cout);
 
     auto target_cube = FaceCube();
     target_cube.Reset();
@@ -1096,7 +1160,7 @@ template <int order> struct FaceBeamSearchSolver {
         solution.Print();
         cout << endl;
         initial_cube.Rotate(solution);
-        // initial_cube.Display(cout);
+        initial_cube.Display(cout);
     }
 }
 
