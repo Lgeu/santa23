@@ -6,4 +6,5 @@
 tmp.*
 /py/*/*
 /cpp/out/*
+/cpp/log/*
 !/cpp/out/edge_formula_5_4.txt
