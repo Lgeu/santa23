@@ -22,7 +22,7 @@ using std::unique_lock;
 
 std::mutex mtx;
 
-constexpr int Order = 33;
+constexpr int Order = 9;
 constexpr int OrderFormula = 7;
 const auto formula_file = "out/face_formula_7_8.txt";
 constexpr bool flag_parallel = true;
@@ -46,8 +46,17 @@ struct FaceCube : public Cube<order, ColorType> {
                     if ((order % 2 == 1) && (x == order / 2) &&
                         (y == order / 2))
                         coef = 100;
-                    score += coef * (this->Get(face_id, y, x) !=
-                                     target.Get(face_id, y, x));
+                    // distance of face
+                    i8 c1 = this->Get(face_id, y, x).data;
+                    i8 c2 = target.Get(face_id, y, x).data;
+                    // if (Cube<order, ColorType>::GetOppositeFaceId(c1) == c2)
+                    // {
+                    //     coef *= 2;
+                    // }
+
+                    // score += coef * (this->Get(face_id, y, x) !=
+                    //                  target.Get(face_id, y, x));
+                    score += coef * FaceCube::GetFaceDistance(c1, c2);
                 }
             }
         }
@@ -188,9 +197,15 @@ template <int order> struct FaceState {
                 (from.y * 2 + 1 == order))
                 coef = 100;
 
-            score_when_applied += (int(color_from == color_from_target) -
-                                   int(color_from == color_to_target)) *
-                                  coef;
+            // score_when_applied += (int(color_from == color_from_target) -
+            //                        int(color_from == color_to_target)) *
+            //                       coef;
+            score_when_applied +=
+                (FaceCube::GetFaceDistance(color_from.data,
+                                           color_to_target.data) -
+                 FaceCube::GetFaceDistance(color_from.data,
+                                           color_from_target.data)) *
+                coef;
         }
         return score_when_applied;
     }
@@ -267,9 +282,17 @@ template <int order> struct FaceState {
                                     (from.y * 2 + 1 == Order))
                                     coef = 100;
 
+                                // score_when_applied +=
+                                //     (int(color_from == color_from_target) -
+                                //      int(color_from == color_to_target)) *
+                                //     coef;
                                 score_when_applied +=
-                                    (int(color_from == color_from_target) -
-                                     int(color_from == color_to_target)) *
+                                    (FaceCube::GetFaceDistance(
+                                         color_from.data,
+                                         color_to_target.data) -
+                                     FaceCube::GetFaceDistance(
+                                         color_from.data,
+                                         color_from_target.data)) *
                                     coef;
                             }
                         }
@@ -1054,7 +1077,7 @@ template <int order> struct FaceBeamSearchSolver {
         // initial_cube.FromCube(cube);
     }
 
-    initial_cube.Display(cout);
+    // initial_cube.Display(cout);
 
     auto target_cube = FaceCube();
     target_cube.Reset();
@@ -1073,7 +1096,7 @@ template <int order> struct FaceBeamSearchSolver {
         solution.Print();
         cout << endl;
         initial_cube.Rotate(solution);
-        initial_cube.Display(cout);
+        // initial_cube.Display(cout);
     }
 }
 

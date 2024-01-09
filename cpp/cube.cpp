@@ -603,6 +603,31 @@ template <int order_, typename ColorType_ = ColorType6> struct Cube {
 
     array<Face<order, ColorType>, 6> faces;
 
+    inline static i8 GetOppositeFaceId(const i8 face_id) {
+        if (face_id == D0)
+            return D1;
+        if (face_id == D1)
+            return D0;
+        if (face_id == F0)
+            return F1;
+        if (face_id == F1)
+            return F0;
+        if (face_id == R0)
+            return R1;
+        if (face_id == R1)
+            return R0;
+        assert(false);
+        return -1;
+    }
+
+    inline static i8 GetFaceDistance(const i8 face_id1, const i8 face_id2) {
+        if (face_id1 == face_id2)
+            return 0;
+        if (face_id1 == GetOppositeFaceId(face_id2))
+            return 2;
+        return 1;
+    }
+
     inline void Reset() {
         if constexpr (is_same_v<ColorType, ColorType6>) {
             for (auto face_id = 0; face_id < 6; face_id++)
