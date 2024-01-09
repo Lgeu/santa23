@@ -229,6 +229,25 @@ struct Face {
         }
     }
 
+    inline ColorType Get(const int y, const int x,
+                         const int orientation) const {
+        assert(0 <= y && y < order);
+        assert(0 <= x && x < order);
+        switch (orientation) {
+        case 0:
+            return facelets[y][x];
+        case 1:
+            return facelets[x][order - 1 - y];
+        case 2:
+            return facelets[order - 1 - y][order - 1 - x];
+        case 3:
+            return facelets[order - 1 - x][y];
+        default:
+            assert(false);
+            return {};
+        }
+    }
+
     inline void Set(const int y, const int x, const ColorType color) {
         assert(0 <= y && y < order);
         assert(0 <= x && x < order);
@@ -273,7 +292,12 @@ struct Face {
 
     inline int GetOrientation() const { return orientation; }
 
-    inline pair<int, int> GetInternalCoordinate(const int y, const int x) {
+    inline int SetOrientation(const int orientation_) {
+        orientation = orientation_;
+    }
+
+    inline pair<int, int> GetInternalCoordinate(const int y,
+                                                const int x) const {
         assert(0 <= y && y < order);
         assert(0 <= x && x < order);
         switch (orientation) {
@@ -460,19 +484,31 @@ struct Formula {
             cube.Rotate(mov);
 
         for (const FaceletPosition pos : CubeType::AllFaceletPositions()) {
+            // const auto color = cube.Get(pos);
+            // const auto original_pos =
+            //     CubeType::ComputeOriginalFaceletPosition(pos.y, pos.x,
+            //     color);
+
+            // FaceletPositionRaw pos_raw = {pos.face_id, pos.y, pos.x};
+            // auto [original_pos_raw_y, original_pos_raw_x] =
+            //     cube.faces[original_pos.face_id].GetInternalCoordinate(
+            //         original_pos.y, original_pos.x);
+            // FaceletPositionRaw original_pos_raw = {original_pos.face_id,
+            //                                        (i8)original_pos_raw_y,
+            //                                        (i8)original_pos_raw_x};
+
+            // if (pos != original_pos && pos_raw != original_pos_raw)
+            //     facelet_changes.push_back({original_pos, pos});
+
             const auto color = cube.Get(pos);
             const auto original_pos =
                 CubeType::ComputeOriginalFaceletPosition(pos.y, pos.x, color);
+            auto [pos_raw_y, pos_raw_x] =
+                cube.faces[pos.face_id].GetInternalCoordinate(pos.y, pos.x);
+            FaceletPosition pos_raw = {pos.face_id, (i8)pos_raw_y,
+                                       (i8)pos_raw_x};
 
-            FaceletPositionRaw pos_raw = {pos.face_id, pos.y, pos.x};
-            auto [original_pos_raw_y, original_pos_raw_x] =
-                cube.faces[original_pos.face_id].GetInternalCoordinate(
-                    original_pos.y, original_pos.x);
-            FaceletPositionRaw original_pos_raw = {original_pos.face_id,
-                                                   (i8)original_pos_raw_y,
-                                                   (i8)original_pos_raw_x};
-
-            if (pos != original_pos && pos_raw != original_pos_raw)
+            if (pos_raw != original_pos)
                 facelet_changes.push_back({original_pos, pos});
         }
     }
