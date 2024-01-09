@@ -22,7 +22,7 @@ using std::unique_lock;
 
 std::mutex mtx;
 
-constexpr int Order = 19;
+constexpr int Order = 11;
 constexpr int OrderFormula = 7;
 // メモリ削減のため面の情報は落とす
 using SliceMap = array<int, Order - 2>;
@@ -585,6 +585,10 @@ template <int order> struct FaceBeamSearchSolver {
             nodes[0][0] = start_node;
         }
 
+        cout << format("total actions={}",
+                       action_candidate_generator.actions.size())
+             << endl;
+
         assert(n_threads == 1);
 
         assert(n_threads >= 1);
@@ -599,13 +603,13 @@ template <int order> struct FaceBeamSearchSolver {
 
         for (auto current_cost = 0; current_cost < 100000; current_cost++) {
             auto current_minimum_score = 9999;
-            cerr << format("current_cost={} nodes={}", current_cost,
+            cout << format("current_cost={} nodes={}", current_cost,
                            nodes[current_cost].size())
                  << endl;
             if (nodes[current_cost].empty()) {
                 continue;
             }
-            // nodes[current_cost][0]->state.cube.Display();
+            nodes[current_cost][0]->state.cube.Display(cerr);
             for (const auto& node : nodes[current_cost]) {
                 if (!node)
                     continue;
@@ -847,7 +851,7 @@ template <int order> struct FaceBeamSearchSolver {
 
     constexpr int n_threads = 1;
 
-    cerr << format("kOrder={} formula_file={} beam_width={} n_threads={}",
+    cout << format("kOrder={} formula_file={} beam_width={} n_threads={}",
                    kOrder, formula_file, beam_width, n_threads)
          << endl;
 
@@ -872,7 +876,7 @@ template <int order> struct FaceBeamSearchSolver {
         // initial_cube.FromCube(cube);
     }
 
-    initial_cube.Display();
+    initial_cube.Display(cout);
 
     auto target_cube = FaceCube();
     target_cube.Reset();
@@ -891,7 +895,7 @@ template <int order> struct FaceBeamSearchSolver {
         solution.Print();
         cout << endl;
         initial_cube.Rotate(solution);
-        initial_cube.Display();
+        initial_cube.Display(cout);
     }
 }
 
