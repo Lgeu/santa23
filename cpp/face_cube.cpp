@@ -24,15 +24,18 @@ using std::unique_lock;
 
 std::mutex mtx;
 
-constexpr int Order = 6;
-constexpr int OrderFormula = 6;
-const auto formula_file = "out/face_formula_6_7.txt";
+constexpr int Order = 33;
+constexpr int OrderFormula = 7;
+const auto formula_file = "out/face_formula_7_7.txt";
 constexpr bool flag_parallel = true;
 // メモリ削減のため面の情報は落とす
 using SliceMap = array<int, Order - 2>;
 using SliceMapInv = array<vector<int>, OrderFormula - 2>;
 
 #ifdef RAINBOW
+
+constexpr int COEF_PARITY = 3;
+
 using ColorTypeChameleon = ColorType24;
 
 int RainbowDist(int c1, int c2) {
@@ -83,6 +86,50 @@ struct FaceCube : public Cube<order, ColorType> {
     static_assert(order == Order);
     FaceCube() : Cube<order, ColorType>() {}
 
+#ifdef RAINBOW
+    // calculate parity
+    static vector<int> GetParityVector(const FaceCube& cube,
+                                       const FaceCube& target) {
+        // vector<int> ret((order / 2 - 1) * (order - order / 2 - 1));
+        vector<int> ret;
+        vector<int> V(24);
+        for (int x = 1; x < order / 2; x++) {
+            for (int y = 1; y < order - order / 2; y++) {
+                for (int face_id = 0; face_id < 6; face_id++) {
+                    for (int orientation = 0; orientation < 4; orientation++) {
+                        int idx_true =
+                            target.faces[face_id].Get(y, x, orientation).data;
+                        int idx =
+                            cube.faces[face_id].Get(y, x, orientation).data;
+                        // cerr << y << " " << x << " " << face_id << " "
+                        //      << orientation << " " << idx_true << " " << idx
+                        //      << endl;
+                        V[idx_true] = idx;
+                    }
+                }
+                int idx = (x - 1) + (order / 2 - 1) * (y - 1);
+                // for (auto& v : V) {
+                //     cerr << v << " ";
+                // }
+                // cerr << endl;
+                // ret[idx] = InversionParityInplace(V) % 2;
+                if (InversionParityInplace(V) % 2 == 1)
+                    ret.emplace_back(idx);
+            }
+        }
+        return ret;
+    }
+
+    static vector<int> GetParityVectorFlag(const FaceCube& cube,
+                                           const FaceCube& target) {
+        vector<int> ret((order / 2 - 1) * (order - order / 2 - 1));
+        for (auto& idx : GetParityVector(cube, target)) {
+            ret[idx] = 1;
+        }
+        return ret;
+    }
+#endif
+
     inline auto ComputeFaceScore(const FaceCube& target) const {
         auto score = 0;
 #ifdef RAINBOW
@@ -118,37 +165,45 @@ struct FaceCube : public Cube<order, ColorType> {
         }
 
         // parity check
-        int sum_parity = 0;
-        vector<i8> V(24);
-        for (int x = 1; x < order / 2; x++) {
-            for (int y = 1; y < order - order / 2; y++) {
-                // if (x == y)
-                //     continue;
-                int cnt_wrong =
-                    0; // TODO  位置が違うマス数 <= 4 ならパリティ考慮?
-                for (int face_id = 0; face_id < 6; face_id++) {
-                    for (int orientation = 0; orientation < 4; orientation++) {
-                        // int idx_true = face_id * 4 + orientation;
-                        int idx_true =
-                            target.faces[face_id].Get(y, x, orientation).data;
-                        int idx =
-                            this->faces[face_id].Get(y, x, orientation).data;
-                        V[idx_true] = idx;
-                        if (idx_true != idx)
-                            cnt_wrong++;
+        if (1) {
+            int sum_parity = 0;
+            vector<i8> V(24);
+            for (int x = 1; x < order / 2; x++) {
+                for (int y = 1; y < order - order / 2; y++) {
+                    // if (x == y)
+                    //     continue;
+                    int cnt_wrong =
+                        0; // TODO  位置が違うマス数 <= 4 ならパリティ考慮?
+                    for (int face_id = 0; face_id < 6; face_id++) {
+                        for (int orientation = 0; orientation < 4;
+                             orientation++) {
+                            // int idx_true = face_id * 4 + orientation;
+                            int idx_true = target.faces[face_id]
+                                               .Get(y, x, orientation)
+                                               .data;
+                            int idx = this->faces[face_id]
+                                          .Get(y, x, orientation)
+                                          .data;
+                            V[idx_true] = idx;
+                            if (idx_true != idx)
+                                cnt_wrong++;
+                        }
+                        // if (cnt_wrong > 5) {
+                        //     break;
+                        // }
                     }
-                    // if (cnt_wrong > 5) {
-                    //     break;
-                    // }
+                    // if (cnt_wrong <= 5)
+                    //     sum_parity += InversionParityInplace(V);
+                    // sum_parity += InversionParityInplace(V) * (24 -
+                    // cnt_wrong);
+                    sum_parity += InversionParityInplace(V);
                 }
-                // if (cnt_wrong <= 5)
-                //     sum_parity += InversionParityInplace(V);
-                // sum_parity += InversionParityInplace(V) * (24 - cnt_wrong);
-                sum_parity += InversionParityInplace(V);
             }
+            // score += sum_parity * 10;
+            // cerr << "socre = " << score << endl;
+            // cerr << "sum_parity naive = " << sum_parity << endl;
+            score += sum_parity * COEF_PARITY;
         }
-        // score += sum_parity * 10;
-        score += sum_parity * 4;
 #else
         for (auto face_id = 0; face_id < 6; face_id++) {
             for (int y = 1; y < order - 1; y++) {
@@ -279,8 +334,14 @@ template <int order> struct FaceState {
     }
 
     // 元から
+#ifdef RAINBOW
+    inline int ScoreWhenApplied(const FaceAction& action, FaceCube& target_cube,
+                                const vector<int>& parity_cube,
+                                const vector<int>& parity_action){
+#else
     inline int ScoreWhenApplied(const FaceAction& action,
                                 FaceCube& target_cube) {
+#endif
         assert(action.use_facelet_changes);
 #ifdef RAINBOW
         static Cube<Order, ColorType6> cube_for_orientation;
@@ -341,6 +402,29 @@ template <int order> struct FaceState {
                 coef;
 #endif
         }
+
+#ifdef RAINBOW
+        if (1) {
+            // parity
+            int cnt_parity = 0;
+            // for (auto& idx : parity_cube) {
+            //     cerr << idx << " ";
+            // }
+            // cerr << endl;
+            for (const auto& idx : parity_action) {
+                // cerr << idx << endl;
+                assert(idx < parity_cube.size());
+                if (parity_cube[idx])
+                    cnt_parity--;
+                else
+                    cnt_parity++;
+            }
+            // cerr << "socre = " << score_when_applied << endl;
+            // cerr << "sum_parity fast = " << cnt_parity << endl;
+            score_when_applied += cnt_parity * COEF_PARITY;
+        }
+
+#endif
 
 #ifdef TESTSCORE
         {
@@ -535,6 +619,10 @@ template <int order> struct FaceActionCandidateGenerator {
         actions; // TODO 参照
                  // bool
                  // はcubeサイズを大きくした時に変更箇所数が変わらなければtrue
+
+#ifdef RAINBOW
+    vector<vector<int>> actions_parity;
+#endif
 
     void DfsSliceMaps(vector<int> used, SliceMap& slice_map,
                       SliceMapInv& slice_map_inv, int depth, int max_depth) {
@@ -826,7 +914,7 @@ template <int order> struct FaceActionCandidateGenerator {
             // int cnt = 0;
             for (int i = 0; i < (int)slice_maps.size(); i++) {
                 bool flag_use = true;
-                auto& slice_map = slice_maps[i];
+                // auto& slice_map = slice_maps[i];
                 auto& slice_map_inv = slice_maps_inv[i];
                 for (int j = 0; j < OrderFormula - 2; j++) {
                     if (vec_use_slices[j] != (slice_map_inv[j].size() > 0)) {
@@ -907,6 +995,34 @@ template <int order> struct FaceActionCandidateGenerator {
             // cerr << endl;
         }
         cerr << endl;
+
+#ifdef RAINBOW
+        {
+            cerr << "update parity vectors" << endl;
+            actions_parity.clear();
+            actions_parity.reserve(actions.size());
+            // FaceCube<Order, ColorType24> cube();
+            auto cube = ::FaceCube<Order, ColorType24>();
+            auto target = ::FaceCube<Order, ColorType24>();
+            target.Reset();
+            int cnt = 0;
+            for (const auto& action : actions) {
+                cerr << "update parity vectors : " << cnt++ << "/"
+                     << actions.size() << "\r" << flush;
+                //  << endl;
+                const auto& [faceaction, faceaction_formula, slice_map,
+                             slice_map_inv, flag_last_action_scale] = action;
+                cube.Reset();
+                // cube.Display();
+                cube.Rotate(faceaction);
+                // cube.Display();
+                actions_parity.emplace_back(
+                    ::FaceCube<Order, ColorType24>::GetParityVector(cube,
+                                                                    target));
+            }
+            cerr << endl;
+        }
+#endif
 
         // // print
         // for (auto& action : actions) {
@@ -1038,10 +1154,30 @@ template <int order> struct FaceBeamSearchSolver {
                                node->last_action_formula.facelet_changes.size())
                      << endl;
 
+#ifdef RAINBOW
+                auto parity_cube = FaceCube::GetParityVectorFlag(
+                    node->state.cube, target_cube);
+#endif
+
                 if (n_threads == 1) {
-                    for (const auto& [action, action_formula, slice_map,
-                                      slice_map_inv, flag_last_action_scale] :
-                         action_candidate_generator.Generate(node->state)) {
+                    // for (const auto& [action, action_formula, slice_map,
+                    //                   slice_map_inv, flag_last_action_scale]
+                    //                   :
+                    //      action_candidate_generator.Generate(node->state)) {
+                    for (int idx_action = 0;
+                         idx_action <
+                         (int)action_candidate_generator.actions.size();
+                         idx_action++) {
+                        const auto& [action, action_formula, slice_map,
+                                     slice_map_inv, flag_last_action_scale] =
+                            action_candidate_generator.actions[idx_action];
+
+#ifdef RAINBOW
+                        const auto& parity_action =
+                            action_candidate_generator
+                                .actions_parity[idx_action];
+#endif
+
                         int new_n_moves = node->state.n_moves + action.Cost();
                         if (new_n_moves >= (int)nodes.size())
                             nodes.resize(new_n_moves + 1);
@@ -1142,18 +1278,34 @@ template <int order> struct FaceBeamSearchSolver {
                                     flag_last_action_scale));
                             }
 #else
+
+#ifdef RAINBOW
+                            int new_score = node->state.ScoreWhenApplied(
+                                action, target_cube, parity_cube,
+                                parity_action);
+#else
                             int new_score = node->state.ScoreWhenApplied(
                                 action, target_cube);
+#endif
 
                             const auto idx = rng.Next() % beam_width;
                             if (new_score <
                                 nodes[new_n_moves][idx]->state.score) {
+                                // if (true) {
                                 auto new_state = node->state;
                                 // new_state.Apply(action, target_cube,
                                 // slice_map,
                                 //                 slice_map_inv);
                                 new_state.Apply(action, target_cube);
+                                // cerr << new_score << " " << new_state.score
+                                //      << endl;
                                 assert(new_state.score == new_score);
+                                if (new_state.score != new_score) {
+                                    cerr << "score did not match" << endl;
+                                    cerr << new_state.score << " " << new_score
+                                         << endl;
+                                    exit(1);
+                                }
                                 nodes[new_n_moves][idx].reset(new FaceNode(
                                     new_state, node, action, action_formula,
                                     slice_map, slice_map_inv,
