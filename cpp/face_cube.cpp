@@ -8,6 +8,7 @@
 #include "cube.cpp"
 
 using std::fill;
+using std::flush;
 using std::lock_guard;
 using std::max;
 using std::min;
@@ -16,15 +17,16 @@ using std::mutex;
 using std::pow;
 using std::reference_wrapper;
 using std::reverse;
+using std::swap;
 using std::thread;
 using std::tuple;
 using std::unique_lock;
 
 std::mutex mtx;
 
-constexpr int Order = 5;
-constexpr int OrderFormula = 5;
-const auto formula_file = "out/face_formula_5_7.txt";
+constexpr int Order = 6;
+constexpr int OrderFormula = 6;
+const auto formula_file = "out/face_formula_6_7.txt";
 constexpr bool flag_parallel = true;
 // メモリ削減のため面の情報は落とす
 using SliceMap = array<int, Order - 2>;
@@ -36,11 +38,38 @@ using ColorTypeChameleon = ColorType24;
 int RainbowDist(int c1, int c2) {
     if (c1 == c2)
         return 0;
-    if ((c1 / 4 == c2 / 4) ||
-        (Cube<Order, ColorType6>::GetOppositeFaceId(c1 / 4) == c2 / 4))
+    // if (c1 / 4 == c2 / 4 && c1 % 4 == c2 % 4)
+    // return 1;
+    if ((c1 & 29) == (c2 & 29))
+        return 2;
+    // if ((c1 / 4 == c2 / 4) && (c1 % 2 == c2 % 2))
+    //     return 2;
+    else if (Cube<Order, ColorType6>::GetOppositeFaceId(c1 / 4) == c2 / 4)
         return 2;
     else
         return 1;
+}
+
+template <typename T> bool InversionParityInplace(vector<T>& V) {
+    int tmp = 0;
+    for (int i = 0; i < (int)V.size(); i++) {
+        while (V[i] != i) {
+            swap(V[i], V[V[i]]);
+            tmp++;
+        }
+    }
+    return tmp % 2 == 1;
+}
+
+template <typename T> bool InversionParity(vector<T> V) {
+    int tmp = 0;
+    for (int i = 0; i < (int)V.size(); i++) {
+        while (V[i] != i) {
+            swap(V[i], V[V[i]]);
+            tmp++;
+        }
+    }
+    return tmp % 2 == 1;
 }
 
 #else
@@ -79,17 +108,6 @@ struct FaceCube : public Cube<order, ColorType> {
                                 .data;
 
                     score += coef * RainbowDist(c1, c2);
-                    // if (c1 != c2) {
-                    //     if ((c1 / 4 == c2 / 4) ||
-                    //         (Cube<order, ColorType6>::GetOppositeFaceId(
-                    //              c1 / 4) == c2 / 4))
-                    //         score += 2 * coef;
-                    //     else
-                    //         score += coef;
-                    // }
-
-                    // score += coef;
-                    // score += coef * FaceCube::GetFaceDistance(c1, c2);
                 }
             }
 
@@ -98,6 +116,39 @@ struct FaceCube : public Cube<order, ColorType> {
             //     cube_copy.faces[face_id].RotateCW(1);
             // }
         }
+
+        // parity check
+        int sum_parity = 0;
+        vector<i8> V(24);
+        for (int x = 1; x < order / 2; x++) {
+            for (int y = 1; y < order - order / 2; y++) {
+                // if (x == y)
+                //     continue;
+                int cnt_wrong =
+                    0; // TODO  位置が違うマス数 <= 4 ならパリティ考慮?
+                for (int face_id = 0; face_id < 6; face_id++) {
+                    for (int orientation = 0; orientation < 4; orientation++) {
+                        // int idx_true = face_id * 4 + orientation;
+                        int idx_true =
+                            target.faces[face_id].Get(y, x, orientation).data;
+                        int idx =
+                            this->faces[face_id].Get(y, x, orientation).data;
+                        V[idx_true] = idx;
+                        if (idx_true != idx)
+                            cnt_wrong++;
+                    }
+                    // if (cnt_wrong > 5) {
+                    //     break;
+                    // }
+                }
+                // if (cnt_wrong <= 5)
+                //     sum_parity += InversionParityInplace(V);
+                // sum_parity += InversionParityInplace(V) * (24 - cnt_wrong);
+                sum_parity += InversionParityInplace(V);
+            }
+        }
+        // score += sum_parity * 10;
+        score += sum_parity * 4;
 #else
         for (auto face_id = 0; face_id < 6; face_id++) {
             for (int y = 1; y < order - 1; y++) {
@@ -229,8 +280,13 @@ template <int order> struct FaceState {
 
     // 元から
     inline int ScoreWhenApplied(const FaceAction& action,
-                                const FaceCube& target_cube) {
+                                FaceCube& target_cube) {
         assert(action.use_facelet_changes);
+#ifdef RAINBOW
+        static Cube<Order, ColorType6> cube_for_orientation;
+        // cube_for_orientation.Reset();
+        cube_for_orientation.RotateOrientation(action);
+#endif
         int score_when_applied = score;
         for (const auto& facelet_change : action.facelet_changes) {
             const auto& from = facelet_change.from;
@@ -254,7 +310,10 @@ template <int order> struct FaceState {
 #ifdef RAINBOW
             const int orientation_from =
                 cube.faces[from.face_id].GetOrientation();
-            const int orientation_to = cube.faces[to.face_id].GetOrientation();
+            int orientation_to =
+                (cube.faces[to.face_id].GetOrientation() +
+                 cube_for_orientation.faces[to.face_id].GetOrientation() + 4) &
+                3;
             const auto color_from_target = target_cube.faces[from.face_id].Get(
                 from.y, from.x, orientation_from);
             const auto color_to_target =
@@ -283,13 +342,41 @@ template <int order> struct FaceState {
 #endif
         }
 
+#ifdef TESTSCORE
         {
             cube.Rotate(action);
             int score_when_applied_true = cube.ComputeFaceScore(target_cube);
             cube.RotateInv(action);
+            if (score_when_applied != score_when_applied_true) {
+                cerr << score_when_applied << " " << score_when_applied_true
+                     << " " << action.facelet_changes.size() << endl;
+                // for (int i = 0; i < 6; i++) {
+                //     cerr <<
+                //     (int)cube_for_orientation.faces[i].GetOrientation()
+                //          << " ";
+                // }
+                cerr << endl;
+                action.Print(cerr);
+                cerr << endl;
+                cube.Display(cerr);
+                cerr << endl;
+                cube.Rotate(action);
+                cube.Display(cerr);
+                cerr << endl;
+                target_cube.Display(cerr);
+                assert(false);
+            } else {
+                // cerr << score_when_applied << " " << score_when_applied_true
+                //      << endl;
+            }
             assert(score_when_applied == score_when_applied_true);
             // return score_when_applied;
         }
+#endif
+
+#ifdef RAINBOW
+        cube_for_orientation.RotateOrientationInv(action);
+#endif
 
         return score_when_applied;
     }
@@ -503,6 +590,8 @@ template <int order> struct FaceActionCandidateGenerator {
     inline void FromFile(const string& filename) {
         actions.clear();
 
+        vector<FaceAction> actions_tmp1;
+
         // ファイルから読み取る
         auto ifs = ifstream(filename);
         if (!ifs.good()) {
@@ -510,10 +599,15 @@ template <int order> struct FaceActionCandidateGenerator {
             abort();
         }
         string line;
+        int cnt = 0;
         while (getline(ifs, line)) {
             if (line.empty() || line[0] == '#')
                 continue;
+            cnt++;
+            cerr << "read lines = " << cnt << "\r" << flush;
             FaceAction faceaction_formula(line);
+            // faceaction_formula
+            //     .EnableFaceletChangesAll<Cube<OrderFormula, ColorType24>>();
             faceaction_formula.EnableFaceletChangesWithNoSameRaw<
                 Cube<OrderFormula, ColorType24>>();
             faceaction_formula.DisableFaceletChangeEdgeCorner<
@@ -536,12 +630,148 @@ template <int order> struct FaceActionCandidateGenerator {
             faceaction_formula
                 .DisableFaceletChangeSameFace<Cube<OrderFormula, ColorType6>>();
 #endif
+
+            if (faceaction_formula.facelet_changes.size() == 3) {
+                // if (false) {
+                bool flag = true;
+                for (auto& mov : faceaction_formula.moves) {
+                    if (mov.depth * 2 + 1 == OrderFormula) {
+                        flag = false;
+                        break;
+                    }
+                }
+                for (auto& ch : faceaction_formula.facelet_changes) {
+                    if (ch.to.x == ch.to.y ||
+                        ch.to.x == OrderFormula - 1 - ch.to.y) {
+                        flag = false;
+                        break;
+                    } else {
+                        // flag = false;
+                        // break;
+                    }
+                }
+                vector<int> face_id_cnt(6);
+                for (auto& ch : faceaction_formula.facelet_changes) {
+                    face_id_cnt[ch.from.face_id]++;
+                }
+                int cnt = 0;
+                for (auto& cnt_face_id : face_id_cnt) {
+                    if (cnt_face_id)
+                        cnt++;
+                }
+                if (cnt != 3) {
+                    flag = false;
+                }
+                static int cnt2 = 0;
+                if (flag) {
+                    cnt2++;
+                    cerr << "Count : " << cnt2 << endl << endl;
+                    Cube<OrderFormula, ColorType24> cube;
+                    cube.Reset();
+                    cube.Rotate(faceaction_formula.moves);
+                    cube.Display(cerr);
+                    cerr << endl;
+                    faceaction_formula.Print(cout);
+                    cout << endl;
+                    for (auto& ch : faceaction_formula.facelet_changes) {
+                        cout << (int)ch.from.face_id << " " << (int)ch.from.y
+                             << " " << (int)ch.from.x << " : "
+                             << (int)ch.to.face_id << " " << (int)ch.to.y << " "
+                             << (int)ch.to.x << endl;
+                    }
+                }
+            }
+
+            vector<int> face_id_cnt(6);
+            for (auto& ch : faceaction_formula.facelet_changes) {
+                face_id_cnt[ch.from.face_id]++;
+            }
+            int face_id_cnt_sum = 0;
+            for (auto& cnt_face_id : face_id_cnt) {
+                if (cnt_face_id)
+                    face_id_cnt_sum++;
+            }
+
+            // if (faceaction_formula.facelet_changes.size() <= 3) {
+            //     actions_tmp1.emplace_back(faceaction_formula);
+            // }
+
+            if (1 <= face_id_cnt_sum && face_id_cnt_sum <= 3) {
+                // if (false) {
+                // static int cnt = 0;
+                // cnt++;
+                // cout << cnt << endl;
+                // cout << cnt << endl;
+
+                // 全ての面に回転を加える
+                vector<int> V_face_id;
+                for (int face_id = 0; face_id < 6; face_id++) {
+                    if (face_id_cnt[face_id]) {
+                        V_face_id.emplace_back(face_id);
+                    }
+                }
+                // for (int i = 0; i < (1 << (2 * V_face_id.size())); i++) {
+                for (int i = 0; i < (1 << (1 * V_face_id.size())); i++) {
+                    // for (int i = 0; i < (1 << max(4, int(1 *
+                    // V_face_id.size())));
+                    //      i++) {
+                    FaceAction faceaction_formula_tmp;
+                    for (int j = 1; j < (int)V_face_id.size(); j++) {
+                        // int cnt = (i >> (2 * j)) & 3;
+                        int cnt = 0;
+                        if (j == 0)
+                            cnt = 0;
+                        if (j == 1)
+                            cnt = i & 3;
+                        else if (j == 2)
+                            cnt = (i >> 2) & 1;
+                        else
+                            assert(false);
+                        if (cnt == 0) {
+                        } else if (cnt == 3) {
+                            faceaction_formula_tmp.moves.emplace_back(
+                                Cube<OrderFormula, ColorType24>::
+                                    GetFaceRotateMoveInv(V_face_id[j]));
+                        } else {
+                            for (int k = 0; k < cnt; k++) {
+                                faceaction_formula_tmp.moves.emplace_back(
+                                    Cube<OrderFormula, ColorType24>::
+                                        GetFaceRotateMove(V_face_id[j]));
+                            }
+                        }
+                    }
+                    // 結合
+                    copy(faceaction_formula.moves.begin(),
+                         faceaction_formula.moves.end(),
+                         back_inserter(faceaction_formula_tmp.moves));
+                    faceaction_formula_tmp.EnableFaceletChangesWithNoSameRaw<
+                        Cube<OrderFormula, ColorType24>>();
+                    faceaction_formula_tmp.DisableFaceletChangeEdgeCorner<
+                        Cube<OrderFormula, ColorType24>>();
+#ifndef RAINBOW
+                    faceaction_formula_tmp.DisableFaceletChangeSameFace<
+                        Cube<OrderFormula, ColorType6>>();
+#endif
+                    actions_tmp1.emplace_back(faceaction_formula_tmp);
+                }
+            } else {
+                actions_tmp1.emplace_back(faceaction_formula);
+            }
+        }
+        cerr << endl;
+
+        int idx_faceaction = 0;
+        for (auto& faceaction_formula : actions_tmp1) {
+            idx_faceaction++;
+            cerr << "idx_faceaction = " << idx_faceaction << "/"
+                 << actions_tmp1.size() << "\r" << flush;
+
             // if (faceaction_formula.facelet_changes.size() > 6) {
             //     continue;
             //     // if (faceaction_formula.moves.size() == 1 &&
             //     //     (faceaction_formula.moves[0].depth == 0 ||
-            //     //      faceaction_formula.moves[0].depth == OrderFormula -
-            //     1)) {
+            //     //      faceaction_formula.moves[0].depth == OrderFormula
+            //     - 1)) {
             //     //     // 回転
             //     // } else {
             //     //     // 緊急回避
@@ -577,6 +807,8 @@ template <int order> struct FaceActionCandidateGenerator {
                     ConvertFaceActionMoveWithSliceMap<OrderFormula,
                                                       OrderFormula + 2>(
                         faceaction_formula, slice_map, slice_map_inv);
+                // action_new.EnableFaceletChangesAll<
+                //     Cube<OrderFormula + 2, ColorType24>>();
                 action_new.EnableFaceletChangesWithNoSameRaw<
                     Cube<OrderFormula + 2, ColorType24>>();
                 action_new.DisableFaceletChangeEdgeCorner<
@@ -656,6 +888,8 @@ template <int order> struct FaceActionCandidateGenerator {
                             ConvertFaceActionMoveWithSliceMap<OrderFormula,
                                                               Order>(
                                 faceaction_formula, slice_map, slice_map_inv);
+                        // faceaction.EnableFaceletChangesAll<
+                        //     Cube<Order, ColorType24>>();
                         faceaction.EnableFaceletChangesWithNoSameRaw<
                             Cube<Order, ColorType24>>();
                         faceaction.DisableFaceletChangeEdgeCorner<
@@ -672,6 +906,7 @@ template <int order> struct FaceActionCandidateGenerator {
             // cerr << cnt << endl;
             // cerr << endl;
         }
+        cerr << endl;
 
         // // print
         // for (auto& action : actions) {
@@ -778,13 +1013,13 @@ template <int order> struct FaceBeamSearchSolver {
 
         for (auto current_cost = 0; current_cost < 100000; current_cost++) {
             auto current_minimum_score = 9999;
-            cout << format("current_cost={} nodes={}", current_cost,
-                           nodes[current_cost].size())
-                 << endl;
             if (nodes[current_cost].empty()) {
                 continue;
             }
             nodes[current_cost][0]->state.cube.Display(cerr);
+            cout << format("current_cost={} nodes={}", current_cost,
+                           nodes[current_cost].size())
+                 << endl;
             for (const auto& node : nodes[current_cost]) {
                 if (!node)
                     continue;
@@ -794,6 +1029,14 @@ template <int order> struct FaceBeamSearchSolver {
                     cerr << "Solved!" << endl;
                     return node;
                 }
+
+                cout << format("score={}, last_action_cost={} "
+                               "facelet_changes_len={} "
+                               "facelet_changes_len_formula={}",
+                               node->state.score, node->last_action.Cost(),
+                               node->last_action.facelet_changes.size(),
+                               node->last_action_formula.facelet_changes.size())
+                     << endl;
 
                 if (n_threads == 1) {
                     for (const auto& [action, action_formula, slice_map,
@@ -910,6 +1153,7 @@ template <int order> struct FaceBeamSearchSolver {
                                 // slice_map,
                                 //                 slice_map_inv);
                                 new_state.Apply(action, target_cube);
+                                assert(new_state.score == new_score);
                                 nodes[new_n_moves][idx].reset(new FaceNode(
                                     new_state, node, action, action_formula,
                                     slice_map, slice_map_inv,
@@ -920,7 +1164,7 @@ template <int order> struct FaceBeamSearchSolver {
                     }
 
                     // TODO 並列化
-#ifndef NAIVE
+                    // #ifndef NAIVE
                     if constexpr (flag_parallel)
                         if (node->parent) {
                             // action を全探索
@@ -950,8 +1194,10 @@ template <int order> struct FaceBeamSearchSolver {
                                 //     cerr << slice_map_new[i] << " ";
                                 // }
                                 // cerr << endl;
-                                // for (int i = 0; i < OrderFormula - 2; i++) {
-                                //     cerr << slice_map_inv_new[i].size() << "
+                                // for (int i = 0; i < OrderFormula - 2;
+                                // i++) {
+                                //     cerr << slice_map_inv_new[i].size()
+                                //     << "
                                 //     ";
                                 // }
                                 // cerr << endl;
@@ -1048,13 +1294,15 @@ template <int order> struct FaceBeamSearchSolver {
                                         //     cerr << slice_idx << " "
                                         //          << slice_idx_formula <<
                                         //          endl;
-                                        //     for (int i = 0; i < Order - 2;
-                                        //     i++) {
-                                        //         cerr << slice_map_new[i] << "
+                                        //     for (int i = 0; i < Order -
+                                        //     2; i++) {
+                                        //         cerr << slice_map_new[i]
+                                        //         << "
                                         //         ";
                                         //     }
                                         //     cerr << endl;
-                                        //     for (int i = 0; i < OrderFormula
+                                        //     for (int i = 0; i <
+                                        //     OrderFormula
                                         //     - 2;
                                         //          i++) {
                                         //         cerr <<
@@ -1062,11 +1310,13 @@ template <int order> struct FaceBeamSearchSolver {
                                         //              << " ";
                                         //     }
                                         //     cerr << endl;
-                                        //     cerr << new_state.score << " "
+                                        //     cerr << new_state.score << "
+                                        //     "
                                         //          << new_score << endl;
                                         //     assert(new_state.score ==
                                         //     new_score);
-                                        //     // nodes[new_n_moves][idx].reset(
+                                        //     //
+                                        //     nodes[new_n_moves][idx].reset(
                                         //     //     new FaceNode(
                                         //     //         new_state, node,
                                         //     action_new,
@@ -1088,16 +1338,16 @@ template <int order> struct FaceBeamSearchSolver {
                                 }
                             }
                         }
-#endif
+                    // #endif
 
                 } else {
                     assert(false);
                 }
             }
 
-            cout << format("current_cost={} current_minimum_score={}",
-                           current_cost, current_minimum_score)
-                 << endl;
+            // cout << format("current_cost={} current_minimum_score={}",
+            //                current_cost, current_minimum_score)
+            // << endl;
             nodes[current_cost].clear();
         }
         cerr << "Failed." << endl;

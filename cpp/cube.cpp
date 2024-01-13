@@ -465,6 +465,23 @@ struct Formula {
         }
     }
 
+    template <Cubeish CubeType> inline void EnableFaceletChangesAll() {
+        if (use_facelet_changes)
+            return;
+        use_facelet_changes = true;
+        facelet_changes.clear();
+        auto cube = CubeType();
+        cube.Reset();
+        for (const auto& mov : moves)
+            cube.Rotate(mov);
+
+        for (const FaceletPosition pos : CubeType::AllFaceletPositions()) {
+            const auto color = cube.Get(pos);
+            const auto original_pos =
+                CubeType::ComputeOriginalFaceletPosition(pos.y, pos.x, color);
+        }
+    }
+
     inline void DisableFaceletChanges() {
         use_facelet_changes = false;
         facelet_changes.clear();
@@ -675,6 +692,40 @@ template <int order_, typename ColorType_ = ColorType6> struct Cube {
         return -1;
     }
 
+    inline static Move GetFaceRotateMove(const i8 face_id) {
+        if (face_id == F0)
+            return {Move::Direction::F, 0};
+        if (face_id == F1)
+            return {Move::Direction::F, order - 1};
+        if (face_id == D0)
+            return {Move::Direction::D, 0};
+        if (face_id == D1)
+            return {Move::Direction::D, order - 1};
+        if (face_id == R0)
+            return {Move::Direction::R, 0};
+        if (face_id == R1)
+            return {Move::Direction::R, order - 1};
+        assert(false);
+        return {};
+    }
+
+    inline static Move GetFaceRotateMoveInv(const i8 face_id) {
+        if (face_id == F0)
+            return {Move::Direction::Fp, 0};
+        if (face_id == F1)
+            return {Move::Direction::Fp, order - 1};
+        if (face_id == D0)
+            return {Move::Direction::Dp, 0};
+        if (face_id == D1)
+            return {Move::Direction::Dp, order - 1};
+        if (face_id == R0)
+            return {Move::Direction::Rp, 0};
+        if (face_id == R1)
+            return {Move::Direction::Rp, order - 1};
+        assert(false);
+        return {};
+    }
+
     inline void Reset() {
         if constexpr (is_same_v<ColorType, ColorType6>) {
             for (auto face_id = 0; face_id < 6; face_id++)
@@ -790,6 +841,55 @@ template <int order_, typename ColorType_ = ColorType6> struct Cube {
 #undef FROM_RIGHT
     }
 
+    inline void RotateOrientation(const Move& mov) {
+#define FROM_BOTTOM order - 1 - mov.depth, i
+#define FROM_LEFT i, mov.depth
+#define FROM_TOP mov.depth, order - 1 - i
+#define FROM_RIGHT order - 1 - i, order - 1 - mov.depth
+        switch (mov.direction) {
+        case Move::Direction::F:
+            if (mov.depth == 0)
+                faces[F0].RotateCW(1);
+            else if (mov.depth == order - 1)
+                faces[F1].RotateCW(-1);
+            break;
+        case Move::Direction::Fp:
+            if (mov.depth == 0)
+                faces[F0].RotateCW(-1);
+            else if (mov.depth == order - 1)
+                faces[F1].RotateCW(1);
+            break;
+        case Move::Direction::D:
+            if (mov.depth == 0)
+                faces[D0].RotateCW(1);
+            else if (mov.depth == order - 1)
+                faces[D1].RotateCW(-1);
+            break;
+        case Move::Direction::Dp:
+            if (mov.depth == 0)
+                faces[D0].RotateCW(-1);
+            else if (mov.depth == order - 1)
+                faces[D1].RotateCW(1);
+            break;
+        case Move::Direction::R:
+            if (mov.depth == 0)
+                faces[R0].RotateCW(1);
+            else if (mov.depth == order - 1)
+                faces[R1].RotateCW(-1);
+            break;
+        case Move::Direction::Rp:
+            if (mov.depth == 0)
+                faces[R0].RotateCW(-1);
+            else if (mov.depth == order - 1)
+                faces[R1].RotateCW(1);
+            break;
+        }
+#undef FROM_BOTTOM
+#undef FROM_LEFT
+#undef FROM_TOP
+#undef FROM_RIGHT
+    }
+
     inline void Rotate(const Formula& formula) {
         // if (formula.use_facelet_changes)
         //     assert(false); // TODO
@@ -804,6 +904,22 @@ template <int order_, typename ColorType_ = ColorType6> struct Cube {
         // else
         for (int i = (int)formula.Cost() - 1; i >= 0; i--)
             Rotate(formula.moves[i].Inv());
+    }
+
+    inline void RotateOrientation(const Formula& formula) {
+        // if (formula.use_facelet_changes)
+        //     assert(false); // TODO
+        // else
+        for (const auto& m : formula.moves)
+            RotateOrientation(m);
+    }
+
+    inline void RotateOrientationInv(const Formula& formula) {
+        // if (formula.use_facelet_changes)
+        //     assert(false); // TODO
+        // else
+        for (int i = (int)formula.Cost() - 1; i >= 0; i--)
+            RotateOrientation(formula.moves[i].Inv());
     }
 
     inline static constexpr auto AllFaceletPositions() {

@@ -27,6 +27,15 @@ template <int order> struct FaceFormulaSearcher {
         results.clear();
         cube = start_cube;
         Dfs();
+        // add all face rotations
+
+        for (auto direction = (i8)0; direction < 6; direction++) {
+            results.emplace_back(
+                vector<Move>{Move{(Move::Direction)direction, 0}});
+            results.emplace_back(
+                vector<Move>{Move{(Move::Direction)direction, order - 1}});
+        }
+
         return results;
     }
 
@@ -65,7 +74,7 @@ template <int order> struct FaceFormulaSearcher {
             if (last_face_roration_axis != (i8)-1)
                 return false;
         }
-        // 面の揃っていないマスが2以上6以下
+        // 面の揃っていないマスが2以上12以下
         // 最大数の調整
         // TODO 各面に異なる色を割り当てる
         // TODO 虹対応
