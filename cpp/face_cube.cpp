@@ -27,7 +27,7 @@ std::mutex mtx;
 
 constexpr int Order = 33;
 constexpr int OrderFormula = 7;
-const auto formula_file = "out/face_formula_7_7.txt";
+const auto formula_file = "out/face_formula_7_8.txt";
 constexpr bool flag_parallel = true;
 // メモリ削減のため面の情報は落とす
 using SliceMap = array<int, Order - 2>;
@@ -637,24 +637,55 @@ template <int order> struct FaceActionCandidateGenerator {
     // split actions into N parts evenly
     vector<FaceActionCandidateGenerator> Split(int N) {
         vector<FaceActionCandidateGenerator> ret(N);
-        vector<int> ret_sum(N);
-        vector<int> V(actions.size());
-        iota(V.begin(), V.end(), 0);
-        sort(V.begin(), V.end(), [&](int i, int j) {
-            return get<0>(actions[i]).Cost() > get<0>(actions[j]).Cost();
-        });
-        for (auto& v : V) {
-            int min_idx =
-                min_element(ret_sum.begin(), ret_sum.end()) - ret_sum.begin();
-            ret_sum[min_idx] += get<0>(actions[v]).Cost();
-            ret[min_idx].actions.emplace_back(move(actions[v]));
-            // ret[min_idx].actions.emplace_back(actions[v]);
-#ifdef RAINBOW
-            ret[min_idx].actions_parity.emplace_back(move(actions_parity[v]));
-            // ret[min_idx].actions_parity.emplace_back(actions_parity[v]);
-#endif
+
+        long long changes_sum = 0;
+        for (int i = 0; i < actions.size(); i++) {
+            changes_sum += get<0>(actions[i]).facelet_changes.size();
         }
+        long long changes_sum_per_part = changes_sum / N;
+        long long changes = 0;
+        int idx = 0;
+        for (int i = 0; i < actions.size(); i++) {
+            changes += get<0>(actions[i]).facelet_changes.size();
+            ret[idx].actions.emplace_back(move(actions[i]));
+#ifdef RAINBOW
+            ret[idx].actions_parity.emplace_back(move(actions_parity[i]));
+#endif
+            if (idx != N - 1 && changes > changes_sum_per_part) {
+                cerr << "changes = " << changes << endl;
+                idx++;
+                changes = 0;
+            }
+        }
+        cerr << "changes = " << changes << endl;
         return ret;
+
+        // // original
+        //         vector<int> ret_sum(N);
+        //         vector<int> V(actions.size());
+        //         iota(V.begin(), V.end(), 0);
+        //         sort(V.begin(), V.end(), [&](int i, int j) {
+        //             return get<0>(actions[i]).Cost() >
+        //             get<0>(actions[j]).Cost();
+        //         });
+        //         for (auto& v : V) {
+        //             int min_idx =
+        //                 min_element(ret_sum.begin(), ret_sum.end()) -
+        //                 ret_sum.begin();
+        //             ret_sum[min_idx] += get<0>(actions[v]).Cost();
+        //             ret[min_idx].actions.emplace_back(move(actions[v]));
+        //             // ret[min_idx].actions.emplace_back(actions[v]);
+        // #ifdef RAINBOW
+        //             ret[min_idx].actions_parity.emplace_back(move(actions_parity[v]));
+        //             //
+        //             ret[min_idx].actions_parity.emplace_back(actions_parity[v]);
+        // #endif
+        //         }
+        //         // print
+        //         for (auto& r : ret_sum) {
+        //             cerr << "split size = " << r << endl;
+        //         }
+        //         return ret;
     }
 
     void DfsSliceMaps(vector<int> used, SliceMap& slice_map,
@@ -792,10 +823,10 @@ template <int order> struct FaceActionCandidateGenerator {
                     cube.Rotate(faceaction_formula.moves);
                     cube.Display(cerr);
                     cerr << endl;
-                    faceaction_formula.Print(cout);
-                    cout << endl;
+                    faceaction_formula.Print(cerr);
+                    cerr << endl;
                     for (auto& ch : faceaction_formula.facelet_changes) {
-                        cout << (int)ch.from.face_id << " " << (int)ch.from.y
+                        cerr << (int)ch.from.face_id << " " << (int)ch.from.y
                              << " " << (int)ch.from.x << " : "
                              << (int)ch.to.face_id << " " << (int)ch.to.y << " "
                              << (int)ch.to.x << endl;
@@ -1155,7 +1186,7 @@ template <int order> struct FaceBeamSearchSolver {
         auto rng = RandomNumberGenerator(42);
         vector<RandomNumberGenerator> rngs;
         if (n_threads >= 2) {
-            for (int i = 0; i < n_threads - 1; i++) {
+            for (int i = 0; i < n_threads; i++) {
                 rngs.emplace_back(RandomNumberGenerator(i));
             }
         }
@@ -1597,7 +1628,7 @@ template <int order> struct FaceBeamSearchSolver {
                                         node->state.ScoreWhenApplied(
                                             action, target_cube, parity_cube,
                                             parity_action);
-#elif
+#else
                                     int new_score =
                                         node->state.ScoreWhenApplied(
                                             action, target_cube);
@@ -1629,15 +1660,115 @@ template <int order> struct FaceBeamSearchSolver {
                             i);
                         threads.emplace_back(move(th));
                     }
+
+                    // parallel
+                    if constexpr (flag_parallel) {
+                        if (node->parent) {
+                            thread th([&]() {
+                                auto& rng = rngs[n_threads - 1];
+                                SliceMap slice_map_new = node->slice_map;
+                                SliceMapInv slice_map_inv_new =
+                                    node->slice_map_inv;
+
+                                // list up used slices in formula
+                                vector<int> vec_use_slices(OrderFormula - 2, 0);
+                                for (Move& mv :
+                                     node->last_action_formula.moves) {
+                                    if (1 <= mv.depth &&
+                                        mv.depth <= OrderFormula - 2) {
+                                        vec_use_slices[mv.depth - 1] = 1;
+                                        vec_use_slices[OrderFormula - 2 -
+                                                       mv.depth] = 1;
+                                    }
+                                }
+                                for (int slice_idx = 0; slice_idx < Order - 2;
+                                     slice_idx++) {
+                                    if (slice_map_new[slice_idx] != -1) {
+                                        continue;
+                                    }
+                                    if constexpr (Order % 2 == 1) {
+                                        if (slice_idx == Order / 2 - 1) {
+                                            continue;
+                                        }
+                                    }
+                                    for (int slice_idx_formula = 0;
+                                         slice_idx_formula < OrderFormula - 2;
+                                         slice_idx_formula++) {
+                                        if constexpr (OrderFormula % 2 == 1) {
+                                            if (slice_idx_formula ==
+                                                OrderFormula / 2 - 1) {
+                                                continue;
+                                            }
+                                        }
+                                        if (!vec_use_slices
+                                                [slice_idx_formula]) {
+                                            continue;
+                                        }
+
+                                        // try new slice
+                                        slice_map_new[slice_idx] =
+                                            slice_idx_formula;
+                                        slice_map_inv_new[slice_idx_formula]
+                                            .emplace_back(slice_idx);
+                                        slice_map_new[Order - 3 - slice_idx] =
+                                            OrderFormula - 3 -
+                                            slice_idx_formula;
+                                        slice_map_inv_new[OrderFormula - 3 -
+                                                          slice_idx_formula]
+                                            .emplace_back(Order - 3 -
+                                                          slice_idx);
+                                        FaceAction action_new =
+                                            ConvertFaceActionMoveWithSliceMap<
+                                                OrderFormula, Order>(
+                                                node->last_action_formula,
+                                                slice_map_new,
+                                                slice_map_inv_new);
+
+                                        auto new_state = node->parent->state;
+                                        new_state.Apply(action_new,
+                                                        target_cube);
+                                        const auto idx =
+                                            rng.Next() % beam_width;
+                                        auto& node_nxt =
+                                            nodes_memo[n_threads - 1][idx]
+                                                      [action_new.Cost() -
+                                                       node->last_action
+                                                           .Cost()];
+                                        if (!node_nxt ||
+                                            new_state.score <
+                                                node_nxt->state.score) {
+                                            node_nxt.reset(new FaceNode(
+                                                new_state, node->parent,
+                                                action_new,
+                                                node->last_action_formula,
+                                                slice_map_new,
+                                                slice_map_inv_new,
+                                                node->flag_last_action_scale));
+                                        }
+                                        slice_map_new[slice_idx] = -1;
+                                        slice_map_inv_new[slice_idx_formula]
+                                            .pop_back();
+                                        slice_map_new[Order - 3 - slice_idx] =
+                                            -1;
+                                        slice_map_inv_new[OrderFormula - 3 -
+                                                          slice_idx_formula]
+                                            .pop_back();
+                                    }
+                                }
+                            });
+                            threads.emplace_back(move(th));
+                        }
+                    }
+
                     for (auto& th : threads) {
                         th.join();
                     }
                     threads.clear();
 
                     // update nodes
-                    for (int i = 0; i < n_threads - 1; i++) {
+                    for (int i = 0; i < n_threads; i++) {
                         for (int j = 0; j < beam_width; j++) {
-                            for (int action_cost = 0;
+                            for (int action_cost = 1;
                                  action_cost <= max_action_cost;
                                  action_cost++) {
                                 // cerr << nodes_memo[i][j][action_cost]
