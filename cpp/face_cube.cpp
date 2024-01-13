@@ -2,6 +2,7 @@
 #include <cmath>
 #include <functional>
 #include <mutex>
+#include <numeric>
 #include <thread>
 #include <tuple>
 
@@ -9,6 +10,7 @@
 
 using std::fill;
 using std::flush;
+using std::iota;
 using std::lock_guard;
 using std::max;
 using std::min;
@@ -20,7 +22,6 @@ using std::reverse;
 using std::swap;
 using std::thread;
 using std::tuple;
-using std::unique_lock;
 
 std::mutex mtx;
 
@@ -337,16 +338,25 @@ template <int order> struct FaceState {
 #ifdef RAINBOW
     inline int ScoreWhenApplied(const FaceAction& action, FaceCube& target_cube,
                                 const vector<int>& parity_cube,
-                                const vector<int>& parity_action){
+                                const vector<int>& parity_action) const {
 #else
     inline int ScoreWhenApplied(const FaceAction& action,
-                                FaceCube& target_cube) {
+                                FaceCube& target_cube) const {
 #endif
         assert(action.use_facelet_changes);
 #ifdef RAINBOW
-        static Cube<Order, ColorType6> cube_for_orientation;
-        // cube_for_orientation.Reset();
-        cube_for_orientation.RotateOrientation(action);
+
+    // static Cube<Order, ColorType6> cube_for_orientation;
+    // cube_for_orientation.RotateOrientation(action);
+
+    Cube<2, ColorType6> cube_for_orientation;
+    for (auto& mov : action.moves) {
+        if (mov.depth == 0)
+            cube_for_orientation.Rotate(mov);
+        else if (mov.depth == Order - 1) {
+            cube_for_orientation.RotateOrientation(Move{mov.direction, 1});
+        }
+    }
 #endif
         int score_when_applied = score;
         for (const auto& facelet_change : action.facelet_changes) {
@@ -624,6 +634,29 @@ template <int order> struct FaceActionCandidateGenerator {
     vector<vector<int>> actions_parity;
 #endif
 
+    // split actions into N parts evenly
+    vector<FaceActionCandidateGenerator> Split(int N) {
+        vector<FaceActionCandidateGenerator> ret(N);
+        vector<int> ret_sum(N);
+        vector<int> V(actions.size());
+        iota(V.begin(), V.end(), 0);
+        sort(V.begin(), V.end(), [&](int i, int j) {
+            return get<0>(actions[i]).Cost() > get<0>(actions[j]).Cost();
+        });
+        for (auto& v : V) {
+            int min_idx =
+                min_element(ret_sum.begin(), ret_sum.end()) - ret_sum.begin();
+            ret_sum[min_idx] += get<0>(actions[v]).Cost();
+            ret[min_idx].actions.emplace_back(move(actions[v]));
+            // ret[min_idx].actions.emplace_back(actions[v]);
+#ifdef RAINBOW
+            ret[min_idx].actions_parity.emplace_back(move(actions_parity[v]));
+            // ret[min_idx].actions_parity.emplace_back(actions_parity[v]);
+#endif
+        }
+        return ret;
+    }
+
     void DfsSliceMaps(vector<int> used, SliceMap& slice_map,
                       SliceMapInv& slice_map_inv, int depth, int max_depth) {
         if (depth >= 0) {
@@ -785,6 +818,29 @@ template <int order> struct FaceActionCandidateGenerator {
             // }
 
             if (1 <= face_id_cnt_sum && face_id_cnt_sum <= 3) {
+                if (1) {
+                    bool flag = true;
+                    if (face_id_cnt_sum != 3)
+                        flag = false;
+                    if (faceaction_formula.facelet_changes.size() != 3)
+                        flag = false;
+                    for (int i = 0;
+                         i < (int)faceaction_formula.facelet_changes.size();
+                         i++) {
+                        int x = faceaction_formula.facelet_changes[i].from.x;
+                        int y = faceaction_formula.facelet_changes[i].from.y;
+                        if (!(x == OrderFormula / 2 || y == OrderFormula / 2))
+                            flag = false;
+                    }
+                    if (flag) {
+                        Cube<OrderFormula, ColorType24> cube;
+                        cube.Reset();
+                        cube.Rotate(faceaction_formula.moves);
+                        cube.Display(cerr);
+                        cerr << endl;
+                    }
+                }
+
                 // if (false) {
                 // static int cnt = 0;
                 // cnt++;
@@ -1070,6 +1126,7 @@ template <int order> struct FaceNode {
           last_action_formula(last_action_formula), slice_map(slice_map),
           slice_map_inv(slice_map_inv),
           flag_last_action_scale(flag_last_action_scale) {}
+    FaceState CopyState() const { return state; }
 };
 
 template <int order> struct FaceBeamSearchSolver {
@@ -1096,6 +1153,12 @@ template <int order> struct FaceBeamSearchSolver {
 
     inline shared_ptr<FaceNode> Solve(const FaceCube& start_cube) {
         auto rng = RandomNumberGenerator(42);
+        vector<RandomNumberGenerator> rngs;
+        if (n_threads >= 2) {
+            for (int i = 0; i < n_threads - 1; i++) {
+                rngs.emplace_back(RandomNumberGenerator(i));
+            }
+        }
 
         const auto start_state = FaceState(start_cube, target_cube);
         const auto start_node = make_shared<FaceNode>(
@@ -1115,17 +1178,21 @@ template <int order> struct FaceBeamSearchSolver {
                        action_candidate_generator.actions.size())
              << endl;
 
-        assert(n_threads == 1);
-
         assert(n_threads >= 1);
         vector<thread> threads;
 
-        // int max_action_cost = 0;
-        // if (n_threads >= 2) {
-        //     for (const auto& action : action_candidate_generator.actions) {
-        //         max_action_cost = max(max_action_cost, action.Cost());
-        //     }
-        // }
+        int max_action_cost = 0;
+        if (n_threads >= 2) {
+            for (const auto& action : action_candidate_generator.actions) {
+                max_action_cost = max(max_action_cost, get<0>(action).Cost());
+            }
+        }
+
+        vector<FaceActionCandidateGenerator> multi_action_candidate_generator;
+        if (n_threads >= 2) {
+            multi_action_candidate_generator =
+                action_candidate_generator.Split(n_threads - 1);
+        }
 
         for (auto current_cost = 0; current_cost < 100000; current_cost++) {
             auto current_minimum_score = 9999;
@@ -1317,6 +1384,7 @@ template <int order> struct FaceBeamSearchSolver {
 
                     // TODO 並列化
                     // #ifndef NAIVE
+                    // cerr << "parallel" << endl;
                     if constexpr (flag_parallel)
                         if (node->parent) {
                             // action を全探索
@@ -1493,7 +1561,134 @@ template <int order> struct FaceBeamSearchSolver {
                     // #endif
 
                 } else {
-                    assert(false);
+                    vector<thread> threads;
+                    vector<vector<vector<shared_ptr<FaceNode>>>> nodes_memo(
+                        n_threads,
+                        vector(beam_width,
+                               vector<shared_ptr<FaceNode>>(
+                                   max_action_cost + 10, start_node)));
+
+                    for (int i = 0; i < n_threads - 1; i++) {
+                        thread th(
+                            [&](int ii) {
+                                auto& action_candidate_generator =
+                                    multi_action_candidate_generator[ii];
+                                auto& rng = rngs[ii];
+                                for (int idx_action = 0;
+                                     idx_action <
+                                     (int)action_candidate_generator.actions
+                                         .size();
+                                     idx_action++) {
+                                    const auto& [action, action_formula,
+                                                 slice_map, slice_map_inv,
+                                                 flag_last_action_scale] =
+                                        action_candidate_generator
+                                            .actions[idx_action];
+#ifdef RAINBOW
+                                    const auto& parity_action =
+                                        action_candidate_generator
+                                            .actions_parity[idx_action];
+#endif
+                                    int new_n_moves =
+                                        node->state.n_moves + action.Cost();
+
+#ifdef RAINBOW
+                                    int new_score =
+                                        node->state.ScoreWhenApplied(
+                                            action, target_cube, parity_cube,
+                                            parity_action);
+#elif
+                                    int new_score =
+                                        node->state.ScoreWhenApplied(
+                                            action, target_cube);
+#endif
+
+                                    const auto idx = rng.Next() % beam_width;
+                                    auto& node_nxt =
+                                        nodes_memo[ii][idx][action.Cost()];
+                                    if ((!node_nxt) ||
+                                        new_score < node_nxt->state.score) {
+                                        // auto new_state = node->state;
+                                        auto new_state = node->CopyState();
+                                        new_state.Apply(action, target_cube);
+                                        if (new_state.score != new_score) {
+                                            cerr << "score did not match"
+                                                 << endl;
+                                            cerr << new_state.score << " "
+                                                 << new_score << endl;
+                                            exit(1);
+                                        }
+                                        node_nxt.reset(new FaceNode(
+                                            new_state, node, action,
+                                            action_formula, slice_map,
+                                            slice_map_inv,
+                                            flag_last_action_scale));
+                                    }
+                                }
+                            },
+                            i);
+                        threads.emplace_back(move(th));
+                    }
+                    for (auto& th : threads) {
+                        th.join();
+                    }
+                    threads.clear();
+
+                    // update nodes
+                    for (int i = 0; i < n_threads - 1; i++) {
+                        for (int j = 0; j < beam_width; j++) {
+                            for (int action_cost = 0;
+                                 action_cost <= max_action_cost;
+                                 action_cost++) {
+                                // cerr << nodes_memo[i][j][action_cost]
+                                //             ->state.score
+                                //      << endl;
+
+                                // if (!nodes_memo[i][j][action_cost])
+                                //     continue;
+
+                                // auto& node_sub =
+                                // nodes_memo[i][j][action_cost];
+
+                                // auto& node_new =
+                                //     nodes[current_cost + action_cost][j];
+
+                                // node_sub->state.cube.Display(cerr);
+                                // cerr << endl;
+                                // cerr << node_sub->state.score << " "
+                                //      << node_sub->state.n_moves << endl;
+
+                                // cerr << current_cost + action_cost << endl;
+                                // swap(node_new, node_sub);
+                                // nodes[current_cost + action_cost][j].reset(
+                                //     new FaceNode(
+                                //         // node->state,
+                                //         node_sub->state, node,
+                                //         node_sub->last_action,
+                                //         node_sub->last_action_formula,
+                                //         node_sub->slice_map,
+                                //         node_sub->slice_map_inv,
+                                //         node_sub->flag_last_action_scale));
+
+                                // nodes[current_cost + action_cost][j] =
+                                //     move(nodes_memo[i][j][action_cost]);
+
+                                auto& node_nxt = nodes_memo[i][j][action_cost];
+                                if (!node_nxt)
+                                    continue;
+                                auto& node =
+                                    nodes[current_cost + action_cost][j];
+                                if (!node) {
+                                    node = move(node_nxt);
+                                    // cerr << node->state.score << " "
+                                    //      << node_nxt->state.score << endl;
+                                } else if (node_nxt->state.score <
+                                           node->state.score) {
+                                    node = node_nxt;
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -1613,7 +1808,7 @@ template <int order> struct FaceBeamSearchSolver {
     static_assert(kOrder == Order);
     const auto beam_width = 1;
 
-    constexpr int n_threads = 1;
+    constexpr int n_threads = 16;
 
     cout << format("kOrder={} formula_file={} beam_width={} n_threads={}",
                    kOrder, formula_file, beam_width, n_threads)
