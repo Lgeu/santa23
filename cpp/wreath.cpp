@@ -596,7 +596,7 @@ template <int siz, int scoring_depth> struct BeamSearchSolver {
     vector<Move> moves;
     while (true) {
         wreath.Display();
-        cout << endl << "total moves = " << moves.size() << endl;
+        cout << "total moves = " << moves.size() << endl;
         int n;
         while (true) {
             cin >> n;
