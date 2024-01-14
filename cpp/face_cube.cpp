@@ -2096,7 +2096,7 @@ template <int order> struct FaceBeamSearchSolver {
     static_assert(kOrder == Order);
     auto beam_width = 1;
 
-    constexpr int n_threads = N_THREADS;
+    int n_threads = N_THREADS;
 
     using Solver = FaceBeamSearchSolver<kOrder>;
     using FaceCube = typename Solver::FaceCube;
@@ -2123,6 +2123,10 @@ template <int order> struct FaceBeamSearchSolver {
         if (argc >= 3) {
             cerr << "argv[2] = " << argv[2] << endl;
             beam_width = atoi(argv[2]);
+        }
+        if (argc >= 4) {
+            cerr << "argv[3] = " << argv[3] << endl;
+            n_threads = atoi(argv[3]);
         }
         string filename_puzzles = "../../../input/santa-2023/puzzles.csv";
         string filename_sample =
