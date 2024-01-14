@@ -5,7 +5,7 @@ if [ $# -ne 3 ]; then
   exit 1
 fi
 
-order_formula=7
+depth=7
 id=$1
 n_threads=$3
 
