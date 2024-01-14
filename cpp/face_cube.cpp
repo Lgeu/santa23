@@ -35,7 +35,8 @@ using SliceMapInv = array<vector<int>, OrderFormula - 2>;
 
 #ifdef RAINBOW
 
-constexpr int COEF_PARITY = 3;
+constexpr int COEF_PARITY = 10;
+constexpr int COEF_PARITY_CROSS = 10;
 
 using ColorTypeChameleon = ColorType24;
 
@@ -197,7 +198,11 @@ struct FaceCube : public Cube<order, ColorType> {
                     //     sum_parity += InversionParityInplace(V);
                     // sum_parity += InversionParityInplace(V) * (24 -
                     // cnt_wrong);
-                    sum_parity += InversionParityInplace(V);
+                    if ((order % 2 == 1) && y == order / 2)
+                        sum_parity +=
+                            InversionParityInplace(V) * COEF_PARITY_CROSS;
+                    else
+                        sum_parity += InversionParityInplace(V);
                 }
             }
             // score += sum_parity * 10;
@@ -424,10 +429,18 @@ template <int order> struct FaceState {
             for (const auto& idx : parity_action) {
                 // cerr << idx << endl;
                 assert(idx < parity_cube.size());
-                if (parity_cube[idx])
-                    cnt_parity--;
-                else
-                    cnt_parity++;
+                if ((order % 2 == 1) &&
+                    idx >= (order / 2 - 1) * (order / 2 - 1)) {
+                    if (parity_cube[idx])
+                        cnt_parity -= COEF_PARITY_CROSS;
+                    else
+                        cnt_parity += COEF_PARITY_CROSS;
+                } else {
+                    if (parity_cube[idx])
+                        cnt_parity--;
+                    else
+                        cnt_parity++;
+                }
             }
             // cerr << "socre = " << score_when_applied << endl;
             // cerr << "sum_parity fast = " << cnt_parity << endl;
