@@ -604,7 +604,7 @@ template <int siz, int scoring_depth> struct BeamSearchSolver {
             if (n >= 0 && n <= 3)
                 break;
             if (n == -1 && moves.size() >= 1) {
-                n = (int)moves.back().move_type;
+                n = (int)moves.back().Inv().move_type;
                 break;
             }
         }
