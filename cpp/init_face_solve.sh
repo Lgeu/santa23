@@ -1,7 +1,8 @@
+mkdir bin log log/kaggle solution_face
+
 make clean
 make all -j
 
-mkdir bin log log/kaggle solution_face
 
 ./bin/face_formula 4 7 &
 ./bin/face_formula 4 8 &
