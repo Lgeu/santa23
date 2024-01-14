@@ -1149,15 +1149,19 @@ tuple<int, bool, Formula> ReadKaggleInput(const string& filename_puzzles,
     string token;
     getline(ss_puzzles, token, ',');
     assert(stoi(token) == id);
+    if (stoi(token) != id) {
+        cerr << "id mismatch" << endl;
+        exit(1);
+    }
     getline(ss_puzzles, puzzle_type, ',');
     stringstream ss_puzzle_type(puzzle_type);
     getline(ss_puzzle_type, token, '/');
     getline(ss_puzzle_type, token, '/');
     puzzle_size = stoi(token);
-    getline(ss_puzzle_type, solution_state, '/');
-    getline(ss_puzzles, s_formula, ',');
+    getline(ss_puzzles, solution_state, '/');
     {
         is_normal = true;
+        cerr << solution_state << endl;
         if (solution_state[0] == 'N')
             is_normal = false;
         if (solution_state[2] == 'B' && puzzle_size % 2 == 0)
