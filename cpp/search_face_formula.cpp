@@ -80,7 +80,15 @@ template <int order> struct FaceFormulaSearcher {
         // TODO 虹対応
         {
             constexpr int n_facecub_diff_min = 1;
-            constexpr int n_facecub_diff_max = 6;
+            // constexpr int n_facecub_diff_max = 12;
+            vector<int> vec_n_facecub_diff_max = {
+                0,  0,  0,  // 0, 1, 2
+                36, 30, 24, // 3, 4, 5
+                18, 6,  6,  // 6, 7, 8
+                6,  6,  6   // 9, 10, 11
+            };
+            const int n_facecub_diff_max =
+                vec_n_facecub_diff_max[clamp(depth, 0, 11)];
             int n_facecube_diff = 0;
             for (auto face_id = 0; face_id <= 5; face_id++) {
                 array<int, ColorType::kNColors> color_counts = {};
