@@ -5,7 +5,7 @@ if [ $# -ne 3 ]; then
   exit 1
 fi
 
-depth=7
+depth=8
 id=$1
 n_threads=$3
 
@@ -59,6 +59,6 @@ fi
 
 
 echo "problem id = $id"
-echo "Running face_solve_${order}_${order}_${mode} ${id} ${2}"
+echo "Running face_solve_${order}_${depth}_${mode} ${id} ${2}"
 
-./bin/face_solve_${order}_${order_formula}_${mode} ${1} ${2} ${3} | tee log/kaggle/${id}.txt
+./bin/face_solve_${order}_${depth}_${mode} ${1} ${2} ${3} | tee log/kaggle/${id}.txt
