@@ -26,9 +26,31 @@ using std::tuple;
 
 std::mutex mtx;
 
-constexpr int Order = 7;
+#ifndef ORDER
+#define ORDER 7
+#endif
+#ifndef DEPTH
+#define DEPTH 7
+#endif
+#ifndef N_THREADS
+#define N_THREADS 16
+#endif
+
+constexpr int Order = ORDER;
+
+#if ORDER == 4
+constexpr int OrderFormula = 4;
+#elif ORDER == 5
+constexpr int OrderFormula = 5;
+#elif ORDER % 2 == 0
+constexpr int OrderFormula = 6;
+#else
 constexpr int OrderFormula = 7;
-const auto formula_file = "out/face_formula_7_7.txt";
+#endif
+
+// const auto formula_file = "out/face_formula_7_7.txt";
+const auto formula_file =
+    format("out/face_formula_{}_{}.txt", OrderFormula, DEPTH);
 constexpr bool flag_parallel = true;
 // メモリ削減のため面の情報は落とす
 using SliceMap = array<int, Order - 2>;
@@ -41,7 +63,7 @@ constexpr int COEF_PARITY_CROSS = 10;
 
 using ColorTypeChameleon = ColorType24;
 
-int RainbowDist(int c1, int c2) {
+inline int RainbowDist(const int c1, const int c2) {
     if (c1 == c2)
         return 0;
     // if (c1 / 4 == c2 / 4 && c1 % 4 == c2 % 4)
@@ -653,13 +675,13 @@ template <int order> struct FaceActionCandidateGenerator {
         vector<FaceActionCandidateGenerator> ret(N);
 
         long long changes_sum = 0;
-        for (int i = 0; i < actions.size(); i++) {
+        for (int i = 0; i < (int)actions.size(); i++) {
             changes_sum += get<0>(actions[i]).facelet_changes.size();
         }
         long long changes_sum_per_part = changes_sum / N;
         long long changes = 0;
         int idx = 0;
-        for (int i = 0; i < actions.size(); i++) {
+        for (int i = 0; i < (int)actions.size(); i++) {
             changes += get<0>(actions[i]).facelet_changes.size();
             ret[idx].actions.emplace_back(move(actions[i]));
 #ifdef RAINBOW
@@ -672,6 +694,11 @@ template <int order> struct FaceActionCandidateGenerator {
             }
         }
         cerr << "changes = " << changes << endl;
+
+        actions.clear();
+#ifdef RAINBOW
+        actions_parity.clear();
+#endif
         return ret;
 
         // // original
@@ -797,8 +824,8 @@ template <int order> struct FaceActionCandidateGenerator {
                 .DisableFaceletChangeSameFace<Cube<OrderFormula, ColorType6>>();
 #endif
 
-            if (faceaction_formula.facelet_changes.size() == 3) {
-                // if (false) {
+            // if (faceaction_formula.facelet_changes.size() == 3) {
+            if (false) {
                 bool flag = true;
                 for (auto& mov : faceaction_formula.moves) {
                     if (mov.depth * 2 + 1 == OrderFormula) {
@@ -863,7 +890,7 @@ template <int order> struct FaceActionCandidateGenerator {
             // }
 
             if (1 <= face_id_cnt_sum && face_id_cnt_sum <= 3) {
-                if (1) {
+                if (0) {
                     bool flag = true;
                     if (face_id_cnt_sum != 3)
                         flag = false;
@@ -1634,8 +1661,8 @@ template <int order> struct FaceBeamSearchSolver {
                                         action_candidate_generator
                                             .actions_parity[idx_action];
 #endif
-                                    int new_n_moves =
-                                        node->state.n_moves + action.Cost();
+                                // int new_n_moves =
+                                //     node->state.n_moves + action.Cost();
 
 #ifdef RAINBOW
                                     int new_score =
@@ -1945,7 +1972,7 @@ template <int order> struct FaceBeamSearchSolver {
 }
 #endif
 
-[[maybe_unused]] static void TestFaceBeamSearch() {
+[[maybe_unused]] static void TestFaceBeamSearch(int argc, char** argv) {
     // constexpr auto kOrder = 9;
     // const auto formula_file = "out/face_formula_9_7.txt";
     // constexpr auto kOrder = 9;
@@ -1953,7 +1980,7 @@ template <int order> struct FaceBeamSearchSolver {
     static_assert(kOrder == Order);
     const auto beam_width = 1;
 
-    constexpr int n_threads = 16;
+    constexpr int n_threads = N_THREADS;
 
     cout << format("kOrder={} formula_file={} beam_width={} n_threads={}",
                    kOrder, formula_file, beam_width, n_threads)
@@ -1975,7 +2002,11 @@ template <int order> struct FaceBeamSearchSolver {
         }
     } else {
         int id;
-        cin >> id;
+        if (argc >= 2) {
+            cerr << "argv[1] = " << argv[1] << endl;
+            id = atoi(argv[1]);
+        } else
+            cin >> id;
         string filename_puzzles = "../../../input/santa-2023/puzzles.csv";
         string filename_sample =
             "../../../input/santa-2023/sample_submission.csv";
@@ -1983,11 +2014,25 @@ template <int order> struct FaceBeamSearchSolver {
             ReadKaggleInput(filename_puzzles, filename_sample, id);
 
         assert(puzzle_size == kOrder);
+        if (puzzle_size != kOrder) {
+            cerr << "puzzle_size != kOrder" << endl;
+            exit(1);
+        }
 #ifdef RAINBOW
         assert(!is_normal);
+        if (is_normal) {
+            cerr << "is_normal" << endl;
+            exit(1);
+        }
 #else
         assert(is_normal);
+        if (!is_normal) {
+            cerr << "!is_normal" << endl;
+            exit(1);
+        }
 #endif
+
+        cout << "problem id = " << id << endl;
 
         initial_cube.Reset();
         initial_cube.RotateInv(sample_formula);
@@ -2052,7 +2097,7 @@ int main() { TestFaceActionCandidateGenerator(); }
 
 // clang++ -std=c++20 -Wall -Wextra -O3 face_cube.cpp -DTEST_FACE_BEAM_SEARCH
 #ifdef TEST_FACE_BEAM_SEARCH
-int main() { TestFaceBeamSearch(); }
+int main(int argc, char** argv) { TestFaceBeamSearch(argc, argv); }
 #endif
 
 /*

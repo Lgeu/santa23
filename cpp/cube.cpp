@@ -1136,6 +1136,7 @@ tuple<int, bool, Formula> ReadKaggleInput(const string& filename_puzzles,
 
     string puzzle_type;
     string s_formula;
+    string solution_state;
     int puzzle_size = 0;
     bool is_normal;
     Formula sample_formula;
@@ -1153,16 +1154,23 @@ tuple<int, bool, Formula> ReadKaggleInput(const string& filename_puzzles,
     getline(ss_puzzle_type, token, '/');
     getline(ss_puzzle_type, token, '/');
     puzzle_size = stoi(token);
+    getline(ss_puzzle_type, solution_state, '/');
     getline(ss_puzzles, s_formula, ',');
-    is_normal = (s_formula[0] != 'N');
+    {
+        is_normal = true;
+        if (solution_state[0] == 'N')
+            is_normal = false;
+        if (solution_state[2] == 'B' && puzzle_size % 2 == 0)
+            is_normal = false;
+    }
     getline(ss_sample, token, ',');
     getline(ss_sample, token, ',');
     sample_formula = Formula(token);
 
-    cerr << "puzzle_type: " << puzzle_type << endl;
-    cerr << "puzzle_size: " << puzzle_size << endl;
-    cerr << "is_normal: " << is_normal << endl;
-    sample_formula.Print(cerr);
+    cout << "puzzle_type: " << puzzle_type << endl;
+    cout << "puzzle_size: " << puzzle_size << endl;
+    cout << "is_normal: " << is_normal << endl;
+    // sample_formula.Print(cerr);
 
     return {puzzle_size, is_normal, sample_formula};
 }
