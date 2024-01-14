@@ -1223,7 +1223,8 @@ template <int order> struct FaceBeamSearchSolver {
         action_candidate_generator.FromFile(formula_file);
     }
 
-    inline shared_ptr<FaceNode> Solve(const FaceCube& start_cube) {
+    inline shared_ptr<FaceNode> Solve(const FaceCube& start_cube,
+                                      const int id = -1) {
         auto rng = RandomNumberGenerator(42);
         vector<RandomNumberGenerator> rngs;
         if (n_threads >= 2) {
@@ -1278,9 +1279,15 @@ template <int order> struct FaceBeamSearchSolver {
                 cout << format("current_cost={} nodes={}", current_cost,
                                nodes[current_cost].size())
                      << endl;
-                for (const auto& node : nodes[current_cost]) {
+                // for (const auto& node : nodes[current_cost]) {
+                for (int idx_node = (int)nodes[current_cost].size() - 1;
+                     idx_node >= 0; idx_node--) {
+                    const auto& node = nodes[current_cost][idx_node];
                     if (!node)
                         continue;
+                    if (current_cost == 0 &&
+                        idx_node != (int)nodes[0].size() - 1)
+                        break;
                     current_minimum_score =
                         min(current_minimum_score, node->state.score);
                     if (node->state.score == 0) {
@@ -1928,7 +1935,50 @@ template <int order> struct FaceBeamSearchSolver {
                 beam_width *= 2;
                 if (n_threads >= 2) {
                     for (auto& nodess : nodes) {
+                        // nodess.clear();
                         nodess.resize(beam_width, start_node);
+                    }
+                }
+
+                // save to file
+                if (id >= 0) {
+                    // 追加
+                    string filename_all =
+                        format("solution_face/{}_all.txt", id);
+                    // ベストのみ
+                    string filename_best =
+                        format("solution_face/{}_best.txt", id);
+
+                    ofstream fout_all(filename_all, ios::app);
+                    if (!fout_all) {
+                        cerr << "cannot open " << filename_all << endl;
+                        exit(1);
+                    }
+                    solution.Print(fout_all);
+                    fout_all << endl;
+                    fout_all << moves.size() << endl;
+                    fout_all.close();
+
+                    // read best score
+                    int best_score = -1;
+                    ifstream fin_best(filename_best);
+                    if (fin_best) {
+                        string line;
+                        getline(fin_best, line);
+                        getline(fin_best, line);
+                        best_score = stoi(line);
+                        fin_best.close();
+                    }
+                    if (best_score == -1 || best_score > (int)moves.size()) {
+                        ofstream fout_best(filename_best, ios::out);
+                        if (!fout_best) {
+                            cerr << "cannot open " << filename_best << endl;
+                            exit(1);
+                        }
+                        solution.Print(fout_best);
+                        fout_best << endl;
+                        fout_best << moves.size() << endl;
+                        fout_best.close();
                     }
                 }
             } else {
@@ -2051,6 +2101,8 @@ template <int order> struct FaceBeamSearchSolver {
     using Solver = FaceBeamSearchSolver<kOrder>;
     using FaceCube = typename Solver::FaceCube;
 
+    int id = -1;
+
     auto initial_cube = FaceCube();
     if (0) {
         // ランダムな initial_cube を用意する
@@ -2063,7 +2115,6 @@ template <int order> struct FaceBeamSearchSolver {
             initial_cube.Rotate(mov);
         }
     } else {
-        int id;
         if (argc >= 2) {
             cerr << "argv[1] = " << argv[1] << endl;
             id = atoi(argv[1]);
@@ -2121,7 +2172,7 @@ template <int order> struct FaceBeamSearchSolver {
 
     auto solver = Solver(target_cube, beam_width, formula_file, n_threads);
 
-    const auto node = solver.Solve(initial_cube);
+    const auto node = solver.Solve(initial_cube, id);
     if (node != nullptr) {
         cout << node->state.n_moves << endl;
         auto moves = vector<Move>();
