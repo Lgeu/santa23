@@ -59,6 +59,6 @@ fi
 
 
 echo "problem id = $id"
-echo "Running face_solve_${order}_${depth}_${mode} ${id} ${2}"
+echo "Running face_solve_${order}_${depth}_${mode} ${1} ${2} ${3}"
 
 ./bin/face_solve_${order}_${depth}_${mode} ${1} ${2} ${3} | tee log/kaggle/${id}.txt
