@@ -10,6 +10,7 @@
 using std::array;
 using std::bitset;
 using std::cerr;
+using std::cin;
 using std::cout;
 using std::endl;
 using std::fill;
@@ -584,6 +585,38 @@ template <int siz, int scoring_depth> struct BeamSearchSolver {
     wreath.Display();
 }
 
+[[maybe_unused]] void InteractiveWreath() {
+    auto wreath = Wreath<33>();
+    wreath.Reset();
+    auto rng = RandomNumberGenerator(42);
+    // ランダムに初期化
+    wreath.Reset();
+    for (auto i = 0; i < 10000; i++)
+        wreath.Rotate({(Move::MoveType)(rng.Next() % 4)});
+    vector<Move> moves;
+    while (true) {
+        wreath.Display();
+        cout << endl << "total moves = " << moves.size() << endl;
+        int n;
+        while (true) {
+            cin >> n;
+            n--;
+            if (n >= 0 && n <= 3)
+                break;
+            if (n == -1 && moves.size() >= 1) {
+                n = (int)moves.back().move_type;
+                break;
+            }
+        }
+        Move mov = {(Move::MoveType)n};
+        wreath.Rotate(mov);
+        if (moves.size() >= 1 && moves.back().move_type == mov.Inv().move_type)
+            moves.pop_back();
+        else
+            moves.push_back(mov);
+    }
+}
+
 [[maybe_unused]] void TestBeamSearch() {
     static constexpr auto kWreathSize = 33;
     static constexpr auto kBeamWidthForEachDepth = 1;
@@ -621,6 +654,11 @@ template <int siz, int scoring_depth> struct BeamSearchSolver {
 // clang++ -std=c++20 -Wall -Wextra -O3 wreath.cpp -DTEST_WREATH
 #ifdef TEST_WREATH
 int main() { TestWreath(); }
+#endif
+
+// clang++ -std=c++20 -Wall -Wextra -O3 wreath.cpp -DINTERACTIVE_WREATH
+#ifdef INTERACTIVE_WREATH
+int main() { InteractiveWreath(); }
 #endif
 
 // clang++ -std=c++20 -Wall -Wextra -O3 wreath.cpp -DTEST_BEAM_SEARCH
