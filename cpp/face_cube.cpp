@@ -1266,608 +1266,674 @@ template <int order> struct FaceBeamSearchSolver {
                 action_candidate_generator.Split(n_threads - 1);
         }
 
-        for (auto current_cost = 0; current_cost < 100000; current_cost++) {
-            auto current_minimum_score = 9999;
-            if (nodes[current_cost].empty()) {
-                continue;
-            }
-            nodes[current_cost][0]->state.cube.Display(cerr);
-            cout << format("current_cost={} nodes={}", current_cost,
-                           nodes[current_cost].size())
-                 << endl;
-            for (const auto& node : nodes[current_cost]) {
-                if (!node)
+        shared_ptr<FaceNode> node_solved;
+
+        while (true) {
+            for (auto current_cost = 0; current_cost < 100000; current_cost++) {
+                auto current_minimum_score = 9999;
+                if (nodes[current_cost].empty()) {
                     continue;
-                current_minimum_score =
-                    min(current_minimum_score, node->state.score);
-                if (node->state.score == 0) {
-                    cerr << "Solved!" << endl;
-                    return node;
                 }
-
-                cout << format("score={}, last_action_cost={} "
-                               "facelet_changes_len={} "
-                               "facelet_changes_len_formula={}",
-                               node->state.score, node->last_action.Cost(),
-                               node->last_action.facelet_changes.size(),
-                               node->last_action_formula.facelet_changes.size())
+                nodes[current_cost][0]->state.cube.Display(cerr);
+                cout << format("current_cost={} nodes={}", current_cost,
+                               nodes[current_cost].size())
                      << endl;
+                for (const auto& node : nodes[current_cost]) {
+                    if (!node)
+                        continue;
+                    current_minimum_score =
+                        min(current_minimum_score, node->state.score);
+                    if (node->state.score == 0) {
+                        cerr << "Solved!" << endl;
+                        // return node;
+                        node_solved = node;
+                        goto BEAM_END;
+                    }
+
+                    cout << format("score={}, last_action_cost={} "
+                                   "facelet_changes_len={} "
+                                   "facelet_changes_len_formula={}",
+                                   node->state.score, node->last_action.Cost(),
+                                   node->last_action.facelet_changes.size(),
+                                   node->last_action_formula.facelet_changes
+                                       .size())
+                         << endl;
 
 #ifdef RAINBOW
-                auto parity_cube = FaceCube::GetParityVectorFlag(
-                    node->state.cube, target_cube);
+                    auto parity_cube = FaceCube::GetParityVectorFlag(
+                        node->state.cube, target_cube);
 #endif
 
-                if (n_threads == 1) {
-                    // for (const auto& [action, action_formula, slice_map,
-                    //                   slice_map_inv, flag_last_action_scale]
-                    //                   :
-                    //      action_candidate_generator.Generate(node->state)) {
-                    for (int idx_action = 0;
-                         idx_action <
-                         (int)action_candidate_generator.actions.size();
-                         idx_action++) {
-                        const auto& [action, action_formula, slice_map,
-                                     slice_map_inv, flag_last_action_scale] =
-                            action_candidate_generator.actions[idx_action];
+                    if (n_threads == 1) {
+                        // for (const auto& [action, action_formula, slice_map,
+                        //                   slice_map_inv,
+                        //                   flag_last_action_scale]
+                        //                   :
+                        //      action_candidate_generator.Generate(node->state))
+                        //      {
+                        for (int idx_action = 0;
+                             idx_action <
+                             (int)action_candidate_generator.actions.size();
+                             idx_action++) {
+                            const auto& [action, action_formula, slice_map,
+                                         slice_map_inv,
+                                         flag_last_action_scale] =
+                                action_candidate_generator.actions[idx_action];
 
 #ifdef RAINBOW
-                        const auto& parity_action =
-                            action_candidate_generator
-                                .actions_parity[idx_action];
+                            const auto& parity_action =
+                                action_candidate_generator
+                                    .actions_parity[idx_action];
 #endif
 
-                        int new_n_moves = node->state.n_moves + action.Cost();
-                        if (new_n_moves >= (int)nodes.size())
-                            nodes.resize(new_n_moves + 1);
-                        if ((int)nodes[new_n_moves].size() < beam_width) {
-                            auto new_state = node->state;
-                            // new_state.Apply(action, target_cube, slice_map,
-                            //                 slice_map_inv);
-                            new_state.Apply(action, target_cube);
-                            nodes[new_state.n_moves].emplace_back(new FaceNode(
-                                new_state, node, action, action_formula,
-                                slice_map, slice_map_inv,
-                                flag_last_action_scale));
-                        } else {
-                            if (false) {
-                                auto new_state = node->state;
-                                new_state.Apply(action, target_cube);
-                                int new_score_slow = new_state.score;
-                                // const auto idx = rng.Next() % beam_width;
-                                // if (new_score_slow <
-                                //     nodes[new_n_moves][idx]->state.score) {
-                                //     nodes[new_n_moves][idx].reset(
-                                //         new FaceNode(new_state, node, action,
-                                //                      slice_map,
-                                //                      slice_map_inv));
-                                // }
-
-                                FaceAction action_new =
-                                    ConvertFaceActionMoveWithSliceMap<
-                                        OrderFormula, Order>(action, slice_map,
-                                                             slice_map_inv);
-
-                                action_new.Print(cerr);
-                                cerr << endl;
-                                action_new.EnableFaceletChangesWithNoSameRaw<
-                                    Cube<Order, ColorType24>>();
-                                action_new.DisableFaceletChangeEdgeCorner<
-                                    Cube<Order, ColorType24>>();
-                                action_new.DisableFaceletChangeSameFace<
-                                    Cube<Order, ColorType6>>();
-                                for (auto& facelet_change :
-                                     action_new.facelet_changes) {
-                                    cerr << (int)facelet_change.from.face_id
-                                         << " " << (int)facelet_change.from.y
-                                         << " " << (int)facelet_change.from.x
-                                         << " : "
-                                         << (int)facelet_change.to.face_id
-                                         << " " << (int)facelet_change.to.y
-                                         << " " << (int)facelet_change.to.x
-                                         << endl;
-                                }
-                                action.Print(cerr);
-                                cerr << endl;
-
-                                FaceAction action_tmp = action;
-                                action_tmp.EnableFaceletChangesWithNoSameRaw<
-                                    Cube<OrderFormula, ColorType24>>();
-                                action_tmp.DisableFaceletChangeEdgeCorner<
-                                    Cube<OrderFormula, ColorType24>>();
-                                action_tmp.DisableFaceletChangeSameFace<
-                                    Cube<OrderFormula, ColorType6>>();
-                                for (auto& facelet_change :
-                                     action_tmp.facelet_changes) {
-                                    cerr << (int)facelet_change.from.face_id
-                                         << " " << (int)facelet_change.from.y
-                                         << " " << (int)facelet_change.from.x
-                                         << " : "
-                                         << (int)facelet_change.to.face_id
-                                         << " " << (int)facelet_change.to.y
-                                         << " " << (int)facelet_change.to.x
-                                         << endl;
-                                }
-                                cerr << endl;
-                                int new_score = node->state.ScoreWhenApplied(
-                                    action, target_cube, slice_map,
-                                    slice_map_inv);
-                                cerr << new_score << " " << new_score_slow
-                                     << endl;
-                                cerr << endl;
-
-                                assert(new_score == new_score_slow);
-                            }
-
-                            // int new_score = node->state.ScoreWhenApplied(
-                            //     action, target_cube, slice_map,
-                            //     slice_map_inv);
-                            //
-
-#ifdef NAIVE
-                            auto new_state = node->state;
-                            new_state.Apply(action, target_cube);
-                            int new_score = new_state.score;
-                            const auto idx = rng.Next() % beam_width;
-                            if (new_score <
-                                nodes[new_n_moves][idx]->state.score) {
-                                nodes[new_n_moves][idx].reset(new FaceNode(
-                                    new_state, node, action, action_formula,
-                                    slice_map, slice_map_inv,
-                                    flag_last_action_scale));
-                            }
-#else
-
-#ifdef RAINBOW
-                            int new_score = node->state.ScoreWhenApplied(
-                                action, target_cube, parity_cube,
-                                parity_action);
-#else
-                            int new_score = node->state.ScoreWhenApplied(
-                                action, target_cube);
-#endif
-
-                            const auto idx = rng.Next() % beam_width;
-                            if (new_score <
-                                nodes[new_n_moves][idx]->state.score) {
-                                // if (true) {
+                            int new_n_moves =
+                                node->state.n_moves + action.Cost();
+                            if (new_n_moves >= (int)nodes.size())
+                                nodes.resize(new_n_moves + 1);
+                            if ((int)nodes[new_n_moves].size() < beam_width) {
                                 auto new_state = node->state;
                                 // new_state.Apply(action, target_cube,
                                 // slice_map,
                                 //                 slice_map_inv);
                                 new_state.Apply(action, target_cube);
-                                // cerr << new_score << " " << new_state.score
-                                //      << endl;
-                                assert(new_state.score == new_score);
-                                if (new_state.score != new_score) {
-                                    cerr << "score did not match" << endl;
-                                    cerr << new_state.score << " " << new_score
+                                nodes[new_state.n_moves].emplace_back(
+                                    new FaceNode(new_state, node, action,
+                                                 action_formula, slice_map,
+                                                 slice_map_inv,
+                                                 flag_last_action_scale));
+                            } else {
+                                if (false) {
+                                    auto new_state = node->state;
+                                    new_state.Apply(action, target_cube);
+                                    int new_score_slow = new_state.score;
+                                    // const auto idx = rng.Next() % beam_width;
+                                    // if (new_score_slow <
+                                    //     nodes[new_n_moves][idx]->state.score)
+                                    //     { nodes[new_n_moves][idx].reset(
+                                    //         new FaceNode(new_state, node,
+                                    //         action,
+                                    //                      slice_map,
+                                    //                      slice_map_inv));
+                                    // }
+
+                                    FaceAction action_new =
+                                        ConvertFaceActionMoveWithSliceMap<
+                                            OrderFormula, Order>(
+                                            action, slice_map, slice_map_inv);
+
+                                    action_new.Print(cerr);
+                                    cerr << endl;
+                                    action_new
+                                        .EnableFaceletChangesWithNoSameRaw<
+                                            Cube<Order, ColorType24>>();
+                                    action_new.DisableFaceletChangeEdgeCorner<
+                                        Cube<Order, ColorType24>>();
+                                    action_new.DisableFaceletChangeSameFace<
+                                        Cube<Order, ColorType6>>();
+                                    for (auto& facelet_change :
+                                         action_new.facelet_changes) {
+                                        cerr
+                                            << (int)facelet_change.from.face_id
+                                            << " " << (int)facelet_change.from.y
+                                            << " " << (int)facelet_change.from.x
+                                            << " : "
+                                            << (int)facelet_change.to.face_id
+                                            << " " << (int)facelet_change.to.y
+                                            << " " << (int)facelet_change.to.x
+                                            << endl;
+                                    }
+                                    action.Print(cerr);
+                                    cerr << endl;
+
+                                    FaceAction action_tmp = action;
+                                    action_tmp
+                                        .EnableFaceletChangesWithNoSameRaw<
+                                            Cube<OrderFormula, ColorType24>>();
+                                    action_tmp.DisableFaceletChangeEdgeCorner<
+                                        Cube<OrderFormula, ColorType24>>();
+                                    action_tmp.DisableFaceletChangeSameFace<
+                                        Cube<OrderFormula, ColorType6>>();
+                                    for (auto& facelet_change :
+                                         action_tmp.facelet_changes) {
+                                        cerr
+                                            << (int)facelet_change.from.face_id
+                                            << " " << (int)facelet_change.from.y
+                                            << " " << (int)facelet_change.from.x
+                                            << " : "
+                                            << (int)facelet_change.to.face_id
+                                            << " " << (int)facelet_change.to.y
+                                            << " " << (int)facelet_change.to.x
+                                            << endl;
+                                    }
+                                    cerr << endl;
+                                    int new_score =
+                                        node->state.ScoreWhenApplied(
+                                            action, target_cube, slice_map,
+                                            slice_map_inv);
+                                    cerr << new_score << " " << new_score_slow
                                          << endl;
-                                    exit(1);
+                                    cerr << endl;
+
+                                    assert(new_score == new_score_slow);
                                 }
-                                nodes[new_n_moves][idx].reset(new FaceNode(
-                                    new_state, node, action, action_formula,
-                                    slice_map, slice_map_inv,
-                                    flag_last_action_scale));
-                            }
+
+                                // int new_score = node->state.ScoreWhenApplied(
+                                //     action, target_cube, slice_map,
+                                //     slice_map_inv);
+                                //
+
+#ifdef NAIVE
+                                auto new_state = node->state;
+                                new_state.Apply(action, target_cube);
+                                int new_score = new_state.score;
+                                const auto idx = rng.Next() % beam_width;
+                                if (new_score <
+                                    nodes[new_n_moves][idx]->state.score) {
+                                    nodes[new_n_moves][idx].reset(new FaceNode(
+                                        new_state, node, action, action_formula,
+                                        slice_map, slice_map_inv,
+                                        flag_last_action_scale));
+                                }
+#else
+
+#ifdef RAINBOW
+                                int new_score = node->state.ScoreWhenApplied(
+                                    action, target_cube, parity_cube,
+                                    parity_action);
+#else
+                                int new_score = node->state.ScoreWhenApplied(
+                                    action, target_cube);
 #endif
-                        }
-                    }
 
-                    // TODO 並列化
-                    // #ifndef NAIVE
-                    // cerr << "parallel" << endl;
-                    if constexpr (flag_parallel)
-                        if (node->parent) {
-                            // action を全探索
-                            // if (node->flag_last_action_scale) {
-                            // any action is ok when actually rotating
-                            if (true) {
-                                // if last action can be modified with
-                                // ConvertFaceActionFaceletChangeWithSliceMap
-                                SliceMap slice_map_new = node->slice_map;
-                                SliceMapInv slice_map_inv_new =
-                                    node->slice_map_inv;
-
-                                // list up used slices in formula
-                                vector<int> vec_use_slices(OrderFormula - 2, 0);
-                                for (Move& mv :
-                                     node->last_action_formula.moves) {
-                                    if (1 <= mv.depth &&
-                                        mv.depth <= OrderFormula - 2) {
-                                        vec_use_slices[mv.depth - 1] = 1;
-                                        vec_use_slices[OrderFormula - 2 -
-                                                       mv.depth] = 1;
+                                const auto idx = rng.Next() % beam_width;
+                                if (new_score <
+                                    nodes[new_n_moves][idx]->state.score) {
+                                    // if (true) {
+                                    auto new_state = node->state;
+                                    // new_state.Apply(action, target_cube,
+                                    // slice_map,
+                                    //                 slice_map_inv);
+                                    new_state.Apply(action, target_cube);
+                                    // cerr << new_score << " " <<
+                                    // new_state.score
+                                    //      << endl;
+                                    assert(new_state.score == new_score);
+                                    if (new_state.score != new_score) {
+                                        cerr << "score did not match" << endl;
+                                        cerr << new_state.score << " "
+                                             << new_score << endl;
+                                        exit(1);
                                     }
+                                    nodes[new_n_moves][idx].reset(new FaceNode(
+                                        new_state, node, action, action_formula,
+                                        slice_map, slice_map_inv,
+                                        flag_last_action_scale));
                                 }
+#endif
+                            }
+                        }
 
-                                // cerr << "original slice map" << endl;
-                                // for (int i = 0; i < Order - 2; i++) {
-                                //     cerr << slice_map_new[i] << " ";
-                                // }
-                                // cerr << endl;
-                                // for (int i = 0; i < OrderFormula - 2;
-                                // i++) {
-                                //     cerr << slice_map_inv_new[i].size()
-                                //     << "
-                                //     ";
-                                // }
-                                // cerr << endl;
+                        // TODO 並列化
+                        // #ifndef NAIVE
+                        // cerr << "parallel" << endl;
+                        if constexpr (flag_parallel)
+                            if (node->parent) {
+                                // action を全探索
+                                // if (node->flag_last_action_scale) {
+                                // any action is ok when actually rotating
+                                if (true) {
+                                    // if last action can be modified with
+                                    // ConvertFaceActionFaceletChangeWithSliceMap
+                                    SliceMap slice_map_new = node->slice_map;
+                                    SliceMapInv slice_map_inv_new =
+                                        node->slice_map_inv;
 
-                                for (int slice_idx = 0; slice_idx < Order - 2;
-                                     slice_idx++) {
-                                    if (slice_map_new[slice_idx] != -1) {
-                                        continue;
-                                    }
-                                    if constexpr (Order % 2 == 1) {
-                                        if (slice_idx == Order / 2 - 1) {
-                                            continue;
+                                    // list up used slices in formula
+                                    vector<int> vec_use_slices(OrderFormula - 2,
+                                                               0);
+                                    for (Move& mv :
+                                         node->last_action_formula.moves) {
+                                        if (1 <= mv.depth &&
+                                            mv.depth <= OrderFormula - 2) {
+                                            vec_use_slices[mv.depth - 1] = 1;
+                                            vec_use_slices[OrderFormula - 2 -
+                                                           mv.depth] = 1;
                                         }
                                     }
-                                    for (int slice_idx_formula = 0;
-                                         slice_idx_formula < OrderFormula - 2;
-                                         slice_idx_formula++) {
-                                        if constexpr (OrderFormula % 2 == 1) {
-                                            if (slice_idx_formula ==
-                                                OrderFormula / 2 - 1) {
+
+                                    // cerr << "original slice map" << endl;
+                                    // for (int i = 0; i < Order - 2; i++) {
+                                    //     cerr << slice_map_new[i] << " ";
+                                    // }
+                                    // cerr << endl;
+                                    // for (int i = 0; i < OrderFormula - 2;
+                                    // i++) {
+                                    //     cerr << slice_map_inv_new[i].size()
+                                    //     << "
+                                    //     ";
+                                    // }
+                                    // cerr << endl;
+
+                                    for (int slice_idx = 0;
+                                         slice_idx < Order - 2; slice_idx++) {
+                                        if (slice_map_new[slice_idx] != -1) {
+                                            continue;
+                                        }
+                                        if constexpr (Order % 2 == 1) {
+                                            if (slice_idx == Order / 2 - 1) {
                                                 continue;
                                             }
                                         }
-                                        if (!vec_use_slices
-                                                [slice_idx_formula]) {
-                                            continue;
+                                        for (int slice_idx_formula = 0;
+                                             slice_idx_formula <
+                                             OrderFormula - 2;
+                                             slice_idx_formula++) {
+                                            if constexpr (OrderFormula % 2 ==
+                                                          1) {
+                                                if (slice_idx_formula ==
+                                                    OrderFormula / 2 - 1) {
+                                                    continue;
+                                                }
+                                            }
+                                            if (!vec_use_slices
+                                                    [slice_idx_formula]) {
+                                                continue;
+                                            }
+
+                                            // try new slice
+                                            slice_map_new[slice_idx] =
+                                                slice_idx_formula;
+                                            slice_map_inv_new[slice_idx_formula]
+                                                .emplace_back(slice_idx);
+                                            slice_map_new[Order - 3 -
+                                                          slice_idx] =
+                                                OrderFormula - 3 -
+                                                slice_idx_formula;
+                                            slice_map_inv_new[OrderFormula - 3 -
+                                                              slice_idx_formula]
+                                                .emplace_back(Order - 3 -
+                                                              slice_idx);
+                                            // FaceAction action_new =
+                                            //     ConvertFaceActionFaceletChangeWithSliceMap<
+                                            //         OrderFormula, Order>(
+                                            //         node->last_action_formula,
+                                            //         slice_map_new,
+                                            //         slice_map_inv_new);
+                                            FaceAction action_new =
+                                                ConvertFaceActionMoveWithSliceMap<
+                                                    OrderFormula, Order>(
+                                                    node->last_action_formula,
+                                                    slice_map_new,
+                                                    slice_map_inv_new);
+
+                                            auto new_state =
+                                                node->parent->state;
+                                            new_state.Apply(action_new,
+                                                            target_cube);
+                                            const auto idx =
+                                                rng.Next() % beam_width;
+                                            if (new_state.score <
+                                                nodes[new_state.n_moves][idx]
+                                                    ->state.score) {
+                                                nodes[new_state.n_moves][idx]
+                                                    .reset(new FaceNode(
+                                                        new_state, node->parent,
+                                                        action_new,
+                                                        node->last_action_formula,
+                                                        slice_map_new,
+                                                        slice_map_inv_new,
+                                                        node->flag_last_action_scale));
+                                            }
+
+                                            // int new_score =
+                                            //     node->parent->state.ScoreWhenApplied(
+                                            //         action_new, target_cube);
+                                            // int new_n_moves =
+                                            //     node->parent->state.n_moves +
+                                            //     action_new.Cost();
+
+                                            // cerr << current_cost << " " <<
+                                            // new_n_moves
+                                            //      << endl;
+
+                                            // const auto idx = rng.Next() %
+                                            // beam_width;
+                                            // // if (new_score <
+                                            // //
+                                            // nodes[new_n_moves][idx]->state.score)
+                                            // //     {
+                                            // if (true) {
+                                            //     auto new_state =
+                                            //     node->parent->state;
+                                            //     new_state.Apply(action_new,
+                                            //                     target_cube);
+                                            //     cerr << slice_idx << " "
+                                            //          << slice_idx_formula <<
+                                            //          endl;
+                                            //     for (int i = 0; i < Order -
+                                            //     2; i++) {
+                                            //         cerr << slice_map_new[i]
+                                            //         << "
+                                            //         ";
+                                            //     }
+                                            //     cerr << endl;
+                                            //     for (int i = 0; i <
+                                            //     OrderFormula
+                                            //     - 2;
+                                            //          i++) {
+                                            //         cerr <<
+                                            //         slice_map_inv_new[i].size()
+                                            //              << " ";
+                                            //     }
+                                            //     cerr << endl;
+                                            //     cerr << new_state.score << "
+                                            //     "
+                                            //          << new_score << endl;
+                                            //     assert(new_state.score ==
+                                            //     new_score);
+                                            //     //
+                                            //     nodes[new_n_moves][idx].reset(
+                                            //     //     new FaceNode(
+                                            //     //         new_state, node,
+                                            //     action_new,
+                                            //     // node->last_action_formula,
+                                            //     //         slice_map_new,
+                                            //     //         slice_map_inv_new,
+                                            //     true));
+                                            // }
+
+                                            slice_map_new[slice_idx] = -1;
+                                            slice_map_inv_new[slice_idx_formula]
+                                                .pop_back();
+                                            slice_map_new[Order - 3 -
+                                                          slice_idx] = -1;
+                                            slice_map_inv_new[OrderFormula - 3 -
+                                                              slice_idx_formula]
+                                                .pop_back();
                                         }
+                                    }
+                                }
+                            }
+                        // #endif
 
-                                        // try new slice
-                                        slice_map_new[slice_idx] =
-                                            slice_idx_formula;
-                                        slice_map_inv_new[slice_idx_formula]
-                                            .emplace_back(slice_idx);
-                                        slice_map_new[Order - 3 - slice_idx] =
-                                            OrderFormula - 3 -
-                                            slice_idx_formula;
-                                        slice_map_inv_new[OrderFormula - 3 -
-                                                          slice_idx_formula]
-                                            .emplace_back(Order - 3 -
-                                                          slice_idx);
-                                        // FaceAction action_new =
-                                        //     ConvertFaceActionFaceletChangeWithSliceMap<
-                                        //         OrderFormula, Order>(
-                                        //         node->last_action_formula,
-                                        //         slice_map_new,
-                                        //         slice_map_inv_new);
-                                        FaceAction action_new =
-                                            ConvertFaceActionMoveWithSliceMap<
-                                                OrderFormula, Order>(
-                                                node->last_action_formula,
-                                                slice_map_new,
-                                                slice_map_inv_new);
+                    } else {
+                        vector<thread> threads;
+                        vector<vector<vector<shared_ptr<FaceNode>>>> nodes_memo(
+                            n_threads,
+                            vector(beam_width,
+                                   vector<shared_ptr<FaceNode>>(
+                                       max_action_cost + 10, start_node)));
 
-                                        auto new_state = node->parent->state;
-                                        new_state.Apply(action_new,
-                                                        target_cube);
+                        for (int i = 0; i < n_threads - 1; i++) {
+                            thread th(
+                                [&](int ii) {
+                                    auto& action_candidate_generator =
+                                        multi_action_candidate_generator[ii];
+                                    auto& rng = rngs[ii];
+                                    for (int idx_action = 0;
+                                         idx_action <
+                                         (int)action_candidate_generator.actions
+                                             .size();
+                                         idx_action++) {
+                                        const auto& [action, action_formula,
+                                                     slice_map, slice_map_inv,
+                                                     flag_last_action_scale] =
+                                            action_candidate_generator
+                                                .actions[idx_action];
+#ifdef RAINBOW
+                                        const auto& parity_action =
+                                            action_candidate_generator
+                                                .actions_parity[idx_action];
+#endif
+                                    // int new_n_moves =
+                                    //     node->state.n_moves + action.Cost();
+
+#ifdef RAINBOW
+                                        int new_score =
+                                            node->state.ScoreWhenApplied(
+                                                action, target_cube,
+                                                parity_cube, parity_action);
+#else
+                                        int new_score =
+                                            node->state.ScoreWhenApplied(
+                                                action, target_cube);
+#endif
+
                                         const auto idx =
                                             rng.Next() % beam_width;
-                                        if (new_state.score <
-                                            nodes[new_state.n_moves][idx]
-                                                ->state.score) {
-                                            nodes[new_state.n_moves][idx].reset(
-                                                new FaceNode(
+                                        auto& node_nxt =
+                                            nodes_memo[ii][idx][action.Cost()];
+                                        if ((!node_nxt) ||
+                                            new_score < node_nxt->state.score) {
+                                            // auto new_state = node->state;
+                                            auto new_state = node->CopyState();
+                                            new_state.Apply(action,
+                                                            target_cube);
+                                            if (new_state.score != new_score) {
+                                                cerr << "score did not match"
+                                                     << endl;
+                                                cerr << new_state.score << " "
+                                                     << new_score << endl;
+                                                exit(1);
+                                            }
+                                            node_nxt.reset(new FaceNode(
+                                                new_state, node, action,
+                                                action_formula, slice_map,
+                                                slice_map_inv,
+                                                flag_last_action_scale));
+                                        }
+                                    }
+                                },
+                                i);
+                            threads.emplace_back(move(th));
+                        }
+
+                        // parallel
+                        if constexpr (flag_parallel) {
+                            if (node->parent) {
+                                thread th([&]() {
+                                    auto& rng = rngs[n_threads - 1];
+                                    SliceMap slice_map_new = node->slice_map;
+                                    SliceMapInv slice_map_inv_new =
+                                        node->slice_map_inv;
+
+                                    // list up used slices in formula
+                                    vector<int> vec_use_slices(OrderFormula - 2,
+                                                               0);
+                                    for (Move& mv :
+                                         node->last_action_formula.moves) {
+                                        if (1 <= mv.depth &&
+                                            mv.depth <= OrderFormula - 2) {
+                                            vec_use_slices[mv.depth - 1] = 1;
+                                            vec_use_slices[OrderFormula - 2 -
+                                                           mv.depth] = 1;
+                                        }
+                                    }
+                                    for (int slice_idx = 0;
+                                         slice_idx < Order - 2; slice_idx++) {
+                                        if (slice_map_new[slice_idx] != -1) {
+                                            continue;
+                                        }
+                                        if constexpr (Order % 2 == 1) {
+                                            if (slice_idx == Order / 2 - 1) {
+                                                continue;
+                                            }
+                                        }
+                                        for (int slice_idx_formula = 0;
+                                             slice_idx_formula <
+                                             OrderFormula - 2;
+                                             slice_idx_formula++) {
+                                            if constexpr (OrderFormula % 2 ==
+                                                          1) {
+                                                if (slice_idx_formula ==
+                                                    OrderFormula / 2 - 1) {
+                                                    continue;
+                                                }
+                                            }
+                                            if (!vec_use_slices
+                                                    [slice_idx_formula]) {
+                                                continue;
+                                            }
+
+                                            // try new slice
+                                            slice_map_new[slice_idx] =
+                                                slice_idx_formula;
+                                            slice_map_inv_new[slice_idx_formula]
+                                                .emplace_back(slice_idx);
+                                            slice_map_new[Order - 3 -
+                                                          slice_idx] =
+                                                OrderFormula - 3 -
+                                                slice_idx_formula;
+                                            slice_map_inv_new[OrderFormula - 3 -
+                                                              slice_idx_formula]
+                                                .emplace_back(Order - 3 -
+                                                              slice_idx);
+                                            FaceAction action_new =
+                                                ConvertFaceActionMoveWithSliceMap<
+                                                    OrderFormula, Order>(
+                                                    node->last_action_formula,
+                                                    slice_map_new,
+                                                    slice_map_inv_new);
+
+                                            auto new_state =
+                                                node->parent->state;
+                                            new_state.Apply(action_new,
+                                                            target_cube);
+                                            const auto idx =
+                                                rng.Next() % beam_width;
+                                            auto& node_nxt =
+                                                nodes_memo[n_threads - 1][idx]
+                                                          [action_new.Cost() -
+                                                           node->last_action
+                                                               .Cost()];
+                                            if (!node_nxt ||
+                                                new_state.score <
+                                                    node_nxt->state.score) {
+                                                node_nxt.reset(new FaceNode(
                                                     new_state, node->parent,
                                                     action_new,
                                                     node->last_action_formula,
                                                     slice_map_new,
                                                     slice_map_inv_new,
                                                     node->flag_last_action_scale));
+                                            }
+                                            slice_map_new[slice_idx] = -1;
+                                            slice_map_inv_new[slice_idx_formula]
+                                                .pop_back();
+                                            slice_map_new[Order - 3 -
+                                                          slice_idx] = -1;
+                                            slice_map_inv_new[OrderFormula - 3 -
+                                                              slice_idx_formula]
+                                                .pop_back();
                                         }
-
-                                        // int new_score =
-                                        //     node->parent->state.ScoreWhenApplied(
-                                        //         action_new, target_cube);
-                                        // int new_n_moves =
-                                        //     node->parent->state.n_moves +
-                                        //     action_new.Cost();
-
-                                        // cerr << current_cost << " " <<
-                                        // new_n_moves
-                                        //      << endl;
-
-                                        // const auto idx = rng.Next() %
-                                        // beam_width;
-                                        // // if (new_score <
-                                        // //
-                                        // nodes[new_n_moves][idx]->state.score)
-                                        // //     {
-                                        // if (true) {
-                                        //     auto new_state =
-                                        //     node->parent->state;
-                                        //     new_state.Apply(action_new,
-                                        //                     target_cube);
-                                        //     cerr << slice_idx << " "
-                                        //          << slice_idx_formula <<
-                                        //          endl;
-                                        //     for (int i = 0; i < Order -
-                                        //     2; i++) {
-                                        //         cerr << slice_map_new[i]
-                                        //         << "
-                                        //         ";
-                                        //     }
-                                        //     cerr << endl;
-                                        //     for (int i = 0; i <
-                                        //     OrderFormula
-                                        //     - 2;
-                                        //          i++) {
-                                        //         cerr <<
-                                        //         slice_map_inv_new[i].size()
-                                        //              << " ";
-                                        //     }
-                                        //     cerr << endl;
-                                        //     cerr << new_state.score << "
-                                        //     "
-                                        //          << new_score << endl;
-                                        //     assert(new_state.score ==
-                                        //     new_score);
-                                        //     //
-                                        //     nodes[new_n_moves][idx].reset(
-                                        //     //     new FaceNode(
-                                        //     //         new_state, node,
-                                        //     action_new,
-                                        //     // node->last_action_formula,
-                                        //     //         slice_map_new,
-                                        //     //         slice_map_inv_new,
-                                        //     true));
-                                        // }
-
-                                        slice_map_new[slice_idx] = -1;
-                                        slice_map_inv_new[slice_idx_formula]
-                                            .pop_back();
-                                        slice_map_new[Order - 3 - slice_idx] =
-                                            -1;
-                                        slice_map_inv_new[OrderFormula - 3 -
-                                                          slice_idx_formula]
-                                            .pop_back();
                                     }
-                                }
+                                });
+                                threads.emplace_back(move(th));
                             }
                         }
-                    // #endif
 
-                } else {
-                    vector<thread> threads;
-                    vector<vector<vector<shared_ptr<FaceNode>>>> nodes_memo(
-                        n_threads,
-                        vector(beam_width,
-                               vector<shared_ptr<FaceNode>>(
-                                   max_action_cost + 10, start_node)));
-
-                    for (int i = 0; i < n_threads - 1; i++) {
-                        thread th(
-                            [&](int ii) {
-                                auto& action_candidate_generator =
-                                    multi_action_candidate_generator[ii];
-                                auto& rng = rngs[ii];
-                                for (int idx_action = 0;
-                                     idx_action <
-                                     (int)action_candidate_generator.actions
-                                         .size();
-                                     idx_action++) {
-                                    const auto& [action, action_formula,
-                                                 slice_map, slice_map_inv,
-                                                 flag_last_action_scale] =
-                                        action_candidate_generator
-                                            .actions[idx_action];
-#ifdef RAINBOW
-                                    const auto& parity_action =
-                                        action_candidate_generator
-                                            .actions_parity[idx_action];
-#endif
-                                // int new_n_moves =
-                                //     node->state.n_moves + action.Cost();
-
-#ifdef RAINBOW
-                                    int new_score =
-                                        node->state.ScoreWhenApplied(
-                                            action, target_cube, parity_cube,
-                                            parity_action);
-#else
-                                    int new_score =
-                                        node->state.ScoreWhenApplied(
-                                            action, target_cube);
-#endif
-
-                                    const auto idx = rng.Next() % beam_width;
-                                    auto& node_nxt =
-                                        nodes_memo[ii][idx][action.Cost()];
-                                    if ((!node_nxt) ||
-                                        new_score < node_nxt->state.score) {
-                                        // auto new_state = node->state;
-                                        auto new_state = node->CopyState();
-                                        new_state.Apply(action, target_cube);
-                                        if (new_state.score != new_score) {
-                                            cerr << "score did not match"
-                                                 << endl;
-                                            cerr << new_state.score << " "
-                                                 << new_score << endl;
-                                            exit(1);
-                                        }
-                                        node_nxt.reset(new FaceNode(
-                                            new_state, node, action,
-                                            action_formula, slice_map,
-                                            slice_map_inv,
-                                            flag_last_action_scale));
-                                    }
-                                }
-                            },
-                            i);
-                        threads.emplace_back(move(th));
-                    }
-
-                    // parallel
-                    if constexpr (flag_parallel) {
-                        if (node->parent) {
-                            thread th([&]() {
-                                auto& rng = rngs[n_threads - 1];
-                                SliceMap slice_map_new = node->slice_map;
-                                SliceMapInv slice_map_inv_new =
-                                    node->slice_map_inv;
-
-                                // list up used slices in formula
-                                vector<int> vec_use_slices(OrderFormula - 2, 0);
-                                for (Move& mv :
-                                     node->last_action_formula.moves) {
-                                    if (1 <= mv.depth &&
-                                        mv.depth <= OrderFormula - 2) {
-                                        vec_use_slices[mv.depth - 1] = 1;
-                                        vec_use_slices[OrderFormula - 2 -
-                                                       mv.depth] = 1;
-                                    }
-                                }
-                                for (int slice_idx = 0; slice_idx < Order - 2;
-                                     slice_idx++) {
-                                    if (slice_map_new[slice_idx] != -1) {
-                                        continue;
-                                    }
-                                    if constexpr (Order % 2 == 1) {
-                                        if (slice_idx == Order / 2 - 1) {
-                                            continue;
-                                        }
-                                    }
-                                    for (int slice_idx_formula = 0;
-                                         slice_idx_formula < OrderFormula - 2;
-                                         slice_idx_formula++) {
-                                        if constexpr (OrderFormula % 2 == 1) {
-                                            if (slice_idx_formula ==
-                                                OrderFormula / 2 - 1) {
-                                                continue;
-                                            }
-                                        }
-                                        if (!vec_use_slices
-                                                [slice_idx_formula]) {
-                                            continue;
-                                        }
-
-                                        // try new slice
-                                        slice_map_new[slice_idx] =
-                                            slice_idx_formula;
-                                        slice_map_inv_new[slice_idx_formula]
-                                            .emplace_back(slice_idx);
-                                        slice_map_new[Order - 3 - slice_idx] =
-                                            OrderFormula - 3 -
-                                            slice_idx_formula;
-                                        slice_map_inv_new[OrderFormula - 3 -
-                                                          slice_idx_formula]
-                                            .emplace_back(Order - 3 -
-                                                          slice_idx);
-                                        FaceAction action_new =
-                                            ConvertFaceActionMoveWithSliceMap<
-                                                OrderFormula, Order>(
-                                                node->last_action_formula,
-                                                slice_map_new,
-                                                slice_map_inv_new);
-
-                                        auto new_state = node->parent->state;
-                                        new_state.Apply(action_new,
-                                                        target_cube);
-                                        const auto idx =
-                                            rng.Next() % beam_width;
-                                        auto& node_nxt =
-                                            nodes_memo[n_threads - 1][idx]
-                                                      [action_new.Cost() -
-                                                       node->last_action
-                                                           .Cost()];
-                                        if (!node_nxt ||
-                                            new_state.score <
-                                                node_nxt->state.score) {
-                                            node_nxt.reset(new FaceNode(
-                                                new_state, node->parent,
-                                                action_new,
-                                                node->last_action_formula,
-                                                slice_map_new,
-                                                slice_map_inv_new,
-                                                node->flag_last_action_scale));
-                                        }
-                                        slice_map_new[slice_idx] = -1;
-                                        slice_map_inv_new[slice_idx_formula]
-                                            .pop_back();
-                                        slice_map_new[Order - 3 - slice_idx] =
-                                            -1;
-                                        slice_map_inv_new[OrderFormula - 3 -
-                                                          slice_idx_formula]
-                                            .pop_back();
-                                    }
-                                }
-                            });
-                            threads.emplace_back(move(th));
+                        for (auto& th : threads) {
+                            th.join();
                         }
-                    }
+                        threads.clear();
 
-                    for (auto& th : threads) {
-                        th.join();
-                    }
-                    threads.clear();
+                        // update nodes
+                        for (int i = 0; i < n_threads; i++) {
+                            for (int j = 0; j < beam_width; j++) {
+                                for (int action_cost = 1;
+                                     action_cost <= max_action_cost;
+                                     action_cost++) {
+                                    // cerr << nodes_memo[i][j][action_cost]
+                                    //             ->state.score
+                                    //      << endl;
 
-                    // update nodes
-                    for (int i = 0; i < n_threads; i++) {
-                        for (int j = 0; j < beam_width; j++) {
-                            for (int action_cost = 1;
-                                 action_cost <= max_action_cost;
-                                 action_cost++) {
-                                // cerr << nodes_memo[i][j][action_cost]
-                                //             ->state.score
-                                //      << endl;
+                                    // if (!nodes_memo[i][j][action_cost])
+                                    //     continue;
 
-                                // if (!nodes_memo[i][j][action_cost])
-                                //     continue;
+                                    // auto& node_sub =
+                                    // nodes_memo[i][j][action_cost];
 
-                                // auto& node_sub =
-                                // nodes_memo[i][j][action_cost];
+                                    // auto& node_new =
+                                    //     nodes[current_cost + action_cost][j];
 
-                                // auto& node_new =
-                                //     nodes[current_cost + action_cost][j];
+                                    // node_sub->state.cube.Display(cerr);
+                                    // cerr << endl;
+                                    // cerr << node_sub->state.score << " "
+                                    //      << node_sub->state.n_moves << endl;
 
-                                // node_sub->state.cube.Display(cerr);
-                                // cerr << endl;
-                                // cerr << node_sub->state.score << " "
-                                //      << node_sub->state.n_moves << endl;
+                                    // cerr << current_cost + action_cost <<
+                                    // endl; swap(node_new, node_sub);
+                                    // nodes[current_cost +
+                                    // action_cost][j].reset(
+                                    //     new FaceNode(
+                                    //         // node->state,
+                                    //         node_sub->state, node,
+                                    //         node_sub->last_action,
+                                    //         node_sub->last_action_formula,
+                                    //         node_sub->slice_map,
+                                    //         node_sub->slice_map_inv,
+                                    //         node_sub->flag_last_action_scale));
 
-                                // cerr << current_cost + action_cost << endl;
-                                // swap(node_new, node_sub);
-                                // nodes[current_cost + action_cost][j].reset(
-                                //     new FaceNode(
-                                //         // node->state,
-                                //         node_sub->state, node,
-                                //         node_sub->last_action,
-                                //         node_sub->last_action_formula,
-                                //         node_sub->slice_map,
-                                //         node_sub->slice_map_inv,
-                                //         node_sub->flag_last_action_scale));
+                                    // nodes[current_cost + action_cost][j] =
+                                    //     move(nodes_memo[i][j][action_cost]);
 
-                                // nodes[current_cost + action_cost][j] =
-                                //     move(nodes_memo[i][j][action_cost]);
-
-                                auto& node_nxt = nodes_memo[i][j][action_cost];
-                                if (!node_nxt)
-                                    continue;
-                                auto& node =
-                                    nodes[current_cost + action_cost][j];
-                                if (!node) {
-                                    node = move(node_nxt);
-                                    // cerr << node->state.score << " "
-                                    //      << node_nxt->state.score << endl;
-                                } else if (node_nxt->state.score <
-                                           node->state.score) {
-                                    node = node_nxt;
+                                    auto& node_nxt =
+                                        nodes_memo[i][j][action_cost];
+                                    if (!node_nxt)
+                                        continue;
+                                    auto& node =
+                                        nodes[current_cost + action_cost][j];
+                                    if (!node) {
+                                        node = move(node_nxt);
+                                        // cerr << node->state.score << " "
+                                        //      << node_nxt->state.score <<
+                                        //      endl;
+                                    } else if (node_nxt->state.score <
+                                               node->state.score) {
+                                        node = node_nxt;
+                                    }
                                 }
                             }
                         }
                     }
                 }
+
+                // cout << format("current_cost={} current_minimum_score={}",
+                //                current_cost, current_minimum_score)
+                // << endl;
+                // nodes[current_cost].clear();
             }
 
-            // cout << format("current_cost={} current_minimum_score={}",
-            //                current_cost, current_minimum_score)
-            // << endl;
-            nodes[current_cost].clear();
+        BEAM_END:
+            if (node_solved) {
+                ostream& out = cout;
+                out << "solved" << endl;
+                out << node_solved->state.n_moves << endl;
+                vector<Move> moves;
+                for (auto p = node_solved; p->parent != nullptr;
+                     p = p->parent) {
+                    for (auto i = (int)p->last_action.moves.size() - 1; i >= 0;
+                         i--) {
+                        moves.emplace_back(p->last_action.moves[i]);
+                    }
+                }
+                reverse(moves.begin(), moves.end());
+                const auto solution = Formula(moves);
+                solution.Print(out);
+                out << endl;
+                auto start_cube_copy = start_cube;
+                start_cube_copy.Rotate(solution);
+                start_cube_copy.Display(out);
+
+                beam_width *= 2;
+                if (n_threads >= 2) {
+                    for (auto& nodess : nodes) {
+                        nodess.resize(beam_width, start_node);
+                    }
+                }
+            } else {
+                break;
+            }
         }
         cerr << "Failed." << endl;
         return nullptr;
@@ -1978,13 +2044,9 @@ template <int order> struct FaceBeamSearchSolver {
     // constexpr auto kOrder = 9;
     constexpr int kOrder = Order;
     static_assert(kOrder == Order);
-    const auto beam_width = 1;
+    auto beam_width = 1;
 
     constexpr int n_threads = N_THREADS;
-
-    cout << format("kOrder={} formula_file={} beam_width={} n_threads={}",
-                   kOrder, formula_file, beam_width, n_threads)
-         << endl;
 
     using Solver = FaceBeamSearchSolver<kOrder>;
     using FaceCube = typename Solver::FaceCube;
@@ -2007,6 +2069,10 @@ template <int order> struct FaceBeamSearchSolver {
             id = atoi(argv[1]);
         } else
             cin >> id;
+        if (argc >= 3) {
+            cerr << "argv[2] = " << argv[2] << endl;
+            beam_width = atoi(argv[2]);
+        }
         string filename_puzzles = "../../../input/santa-2023/puzzles.csv";
         string filename_sample =
             "../../../input/santa-2023/sample_submission.csv";
@@ -2043,6 +2109,10 @@ template <int order> struct FaceBeamSearchSolver {
         // FaceAction faceaction(s);
         // initial_cube.RotateInv(faceaction);
     }
+
+    cout << format("kOrder={} formula_file={} beam_width={} n_threads={}",
+                   kOrder, formula_file, beam_width, n_threads)
+         << endl;
 
     initial_cube.Display(cout);
 
