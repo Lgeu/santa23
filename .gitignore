@@ -8,4 +8,5 @@ tmp.*
 /cpp/out/*
 /cpp/log/*
 /cpp/bin/*
+/cpp/solution_face/*
 !/cpp/out/edge_formula_5_4.txt
