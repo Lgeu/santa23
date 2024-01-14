@@ -8,6 +8,7 @@
 
 #include "cube.cpp"
 
+using std::cin;
 using std::fill;
 using std::flush;
 using std::iota;
@@ -25,9 +26,9 @@ using std::tuple;
 
 std::mutex mtx;
 
-constexpr int Order = 33;
+constexpr int Order = 7;
 constexpr int OrderFormula = 7;
-const auto formula_file = "out/face_formula_7_8.txt";
+const auto formula_file = "out/face_formula_7_7.txt";
 constexpr bool flag_parallel = true;
 // メモリ削減のため面の情報は落とす
 using SliceMap = array<int, Order - 2>;
@@ -1962,7 +1963,7 @@ template <int order> struct FaceBeamSearchSolver {
     using FaceCube = typename Solver::FaceCube;
 
     auto initial_cube = FaceCube();
-    if (true) {
+    if (0) {
         // ランダムな initial_cube を用意する
         // 解けたり解けなかったりする
         initial_cube.Reset();
@@ -1973,10 +1974,29 @@ template <int order> struct FaceBeamSearchSolver {
             initial_cube.Rotate(mov);
         }
     } else {
-        // const auto input_cube_file = "in/input_example_face_1.nnn";
-        // auto cube = Cube<7, ColorType6>();
-        // cube.ReadNNN(input_cube_file);
-        // initial_cube.FromCube(cube);
+        int id;
+        cin >> id;
+        string filename_puzzles = "../../../input/santa-2023/puzzles.csv";
+        string filename_sample =
+            "../../../input/santa-2023/sample_submission.csv";
+        auto [puzzle_size, is_normal, sample_formula] =
+            ReadKaggleInput(filename_puzzles, filename_sample, id);
+
+        assert(puzzle_size == kOrder);
+#ifdef RAINBOW
+        assert(!is_normal);
+#else
+        assert(is_normal);
+#endif
+
+        initial_cube.Reset();
+        initial_cube.RotateInv(sample_formula);
+
+        // string s;
+        // cin >> s;
+        // initial_cube.Reset();
+        // FaceAction faceaction(s);
+        // initial_cube.RotateInv(faceaction);
     }
 
     initial_cube.Display(cout);

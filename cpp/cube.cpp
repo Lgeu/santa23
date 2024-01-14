@@ -26,6 +26,8 @@ using std::pair;
 using std::same_as;
 using std::shared_ptr;
 using std::string;
+using std::stringstream;
+using std::tuple;
 using std::vector;
 using ios = std::ios;
 
@@ -1104,6 +1106,66 @@ template <int order_, typename ColorType_ = ColorType6> struct Cube {
         }
     }
 };
+
+// kaggleの入力を読む
+tuple<int, bool, Formula> ReadKaggleInput(const string& filename_puzzles,
+                                          const string& filename_sample,
+                                          const int id) {
+    // return {puzzle_size, is_normal, sample_formula}
+    if (id < 0 || id > 284) {
+        cerr << "id must be in [0, 284]" << endl;
+        abort();
+    }
+
+    // id+1 行目を読む
+    auto ifs_puzzles = ifstream(filename_puzzles);
+    if (!ifs_puzzles.good()) {
+        cerr << format("Cannot open file `{}`.", filename_puzzles) << endl;
+        abort();
+    }
+    auto ifs_sample = ifstream(filename_sample);
+    if (!ifs_sample.good()) {
+        cerr << format("Cannot open file `{}`.", filename_sample) << endl;
+        abort();
+    }
+    string s_puzzles, s_sample;
+    for (auto i = 0; i <= id + 1; i++)
+        getline(ifs_puzzles, s_puzzles);
+    for (auto i = 0; i <= id + 1; i++)
+        getline(ifs_sample, s_sample);
+
+    string puzzle_type;
+    string s_formula;
+    int puzzle_size = 0;
+    bool is_normal;
+    Formula sample_formula;
+
+    // s_puzzles = id,puzzle_type,solution_state,scramble_state
+    // s_sample = id,formula
+    // puzzle_type = "cube_2/2/2", "cube_3/3/3", ... "cube_33/33/33"
+    stringstream ss_puzzles(s_puzzles);
+    stringstream ss_sample(s_sample);
+    string token;
+    getline(ss_puzzles, token, ',');
+    assert(stoi(token) == id);
+    getline(ss_puzzles, puzzle_type, ',');
+    stringstream ss_puzzle_type(puzzle_type);
+    getline(ss_puzzle_type, token, '/');
+    getline(ss_puzzle_type, token, '/');
+    puzzle_size = stoi(token);
+    getline(ss_puzzles, s_formula, ',');
+    is_normal = (s_formula[0] != 'N');
+    getline(ss_sample, token, ',');
+    getline(ss_sample, token, ',');
+    sample_formula = Formula(token);
+
+    cerr << "puzzle_type: " << puzzle_type << endl;
+    cerr << "puzzle_size: " << puzzle_size << endl;
+    cerr << "is_normal: " << is_normal << endl;
+    sample_formula.Print(cerr);
+
+    return {puzzle_size, is_normal, sample_formula};
+}
 
 using Action = Formula;
 
