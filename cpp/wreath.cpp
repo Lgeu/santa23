@@ -597,6 +597,12 @@ template <int siz, int scoring_depth> struct BeamSearchSolver {
     while (true) {
         wreath.Display();
         cout << "total moves = " << moves.size() << endl;
+
+        if (wreath.ComputeScore() == 0) {
+            cout << "Solved!" << endl;
+            break;
+        }
+
         int n;
         while (true) {
             cin >> n;
@@ -615,6 +621,12 @@ template <int siz, int scoring_depth> struct BeamSearchSolver {
         else
             moves.push_back(mov);
     }
+    cout << "moves = " << endl;
+    for (auto mov : moves) {
+        mov.Print();
+        cout << " ";
+    }
+    cout << endl;
 }
 
 [[maybe_unused]] void TestBeamSearch() {
