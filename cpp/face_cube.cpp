@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cmath>
+#include <ctime>
 #include <functional>
 #include <mutex>
 #include <numeric>
@@ -22,6 +23,8 @@ using std::reference_wrapper;
 using std::reverse;
 using std::swap;
 using std::thread;
+using std::time;
+using std::time_t;
 using std::tuple;
 
 std::mutex mtx;
@@ -1270,13 +1273,20 @@ template <int order> struct FaceBeamSearchSolver {
         shared_ptr<FaceNode> node_solved;
 
         while (true) {
+            // start time
+
+            time_t start_time = time(nullptr);
+
             for (auto current_cost = 0; current_cost < 100000; current_cost++) {
                 auto current_minimum_score = 9999;
                 if (nodes[current_cost].empty()) {
                     continue;
                 }
                 nodes[current_cost][0]->state.cube.Display(cerr);
-                cout << format("current_cost={} nodes={}", current_cost,
+                time_t now_time = time(nullptr);
+                int elapsed_time = now_time - start_time;
+                cout << format("time={}, current_cost={} nodes={}",
+                               elapsed_time, current_cost,
                                nodes[current_cost].size())
                      << endl;
                 // for (const auto& node : nodes[current_cost]) {
@@ -1942,6 +1952,9 @@ template <int order> struct FaceBeamSearchSolver {
 
                 // save to file
                 if (id >= 0) {
+                    time_t now_time = time(nullptr);
+                    int elapsed_time = now_time - start_time;
+
                     // 追加
                     string filename_all =
                         format("solution_face/{}_all.txt", id);
@@ -1956,7 +1969,9 @@ template <int order> struct FaceBeamSearchSolver {
                     }
                     solution.Print(fout_all);
                     fout_all << endl;
-                    fout_all << moves.size() << endl;
+                    fout_all << format("score={} time={} beam_width={}",
+                                       moves.size(), elapsed_time, beam_width)
+                             << endl;
                     fout_all.close();
 
                     // read best score
