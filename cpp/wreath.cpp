@@ -3,8 +3,11 @@
 #include <bitset>
 #include <cassert>
 #include <format>
+#include <fstream>
 #include <iostream>
 #include <memory>
+#include <sstream>
+#include <string>
 #include <vector>
 
 using std::array;
@@ -17,13 +20,82 @@ using std::fill;
 using std::format;
 using std::make_shared;
 using std::min;
+using std::ofstream;
 using std::ostream;
+using std::ostringstream;
 using std::shared_ptr;
+using std::string;
 using std::swap;
 using std::vector;
 
 using i8 = signed char;
 using u64 = unsigned long long;
+
+struct Problem {
+    int id;
+    int size;
+    string initial_state;
+    int n_wildcards;
+};
+
+// clang-format off
+static auto kProblemData = vector<Problem>{
+    {284,6,"A;A;A;A;B;C;B;C;B;B",0},
+    {285,6,"B;A;B;A;B;A;C;A;B;C",2},
+    {286,6,"A;B;C;A;A;C;B;B;B;A",2},
+    {287,6,"B;C;B;C;A;A;B;A;B;A",2},
+    {288,6,"A;A;C;B;C;A;B;B;A;B",0},
+    {289,6,"A;B;A;C;A;B;B;B;A;C",0},
+    {290,6,"A;B;B;A;B;A;B;A;C;C",0},
+    {291,6,"A;B;C;B;A;C;A;A;B;B",2},
+    {292,6,"C;B;B;A;B;B;A;A;A;C",0},
+    {293,6,"A;B;B;C;A;B;B;C;A;A",0},
+    {294,6,"A;C;A;B;B;A;B;C;B;A",0},
+    {295,6,"A;A;C;A;B;B;B;B;C;A",0},
+    {296,6,"C;A;B;C;B;A;B;B;A;A",0},
+    {297,6,"B;A;C;A;B;A;A;C;B;B",0},
+    {298,6,"A;C;B;A;A;B;B;B;C;A",2},
+    {299,6,"A;B;C;A;C;A;B;A;B;B",0},
+    {300,6,"A;B;B;B;A;C;A;A;B;C",0},
+    {301,6,"B;B;B;B;A;C;A;C;A;A",0},
+    {302,6,"C;A;B;A;A;B;B;C;B;A",0},
+    {303,6,"B;A;A;B;A;C;B;A;C;B",0},
+    {304,7,"A;B;B;B;C;A;A;B;C;B;A;A",0},
+    {305,7,"B;C;B;B;A;C;A;A;B;B;A;A",0},
+    {306,7,"B;A;A;B;A;A;A;C;B;C;B;B",0},
+    {307,7,"B;A;A;B;A;C;B;A;C;B;B;A",0},
+    {308,7,"A;B;C;B;B;C;B;A;B;A;A;A",0},
+    {309,7,"B;A;A;C;B;C;B;B;A;A;B;A",2},
+    {310,7,"B;A;C;B;A;A;A;C;B;B;B;A",2},
+    {311,7,"B;A;B;A;A;C;B;A;C;B;A;B",0},
+    {312,7,"B;B;A;B;C;A;B;C;A;B;A;A",0},
+    {313,7,"B;B;A;C;B;A;C;A;A;A;B;B",0},
+    {314,7,"A;C;A;A;B;B;B;A;C;B;A;B",0},
+    {315,7,"B;A;A;A;B;C;B;A;A;C;B;B",0},
+    {316,7,"C;B;A;B;B;A;A;C;A;B;B;A",0},
+    {317,7,"A;B;A;C;A;C;A;B;A;B;B;B",0},
+    {318,7,"C;A;A;C;B;A;A;B;B;B;B;A",0},
+    {319,12,"A;B;A;B;B;B;B;A;A;B;B;A;B;B;A;B;C;C;A;A;A;A",2},
+    {320,12,"A;A;C;B;B;C;A;B;A;B;A;A;B;B;A;B;A;B;B;B;A;A",0},
+    {321,12,"B;B;C;B;A;A;A;B;B;B;A;B;A;A;C;A;B;B;B;A;A;A",2},
+    {322,12,"A;C;A;B;B;A;A;B;B;B;C;A;B;A;B;A;B;B;A;A;B;A",0},
+    {323,12,"B;B;A;B;A;A;B;B;C;B;A;A;B;B;A;B;A;A;A;A;B;C",0},
+    {324,12,"A;A;B;A;A;B;B;A;C;B;A;A;B;B;C;A;B;A;B;B;A;B",0},
+    {325,12,"B;A;B;A;A;A;B;A;B;B;B;A;A;B;A;B;C;C;A;B;A;B",0},
+    {326,12,"B;A;B;A;A;B;B;C;A;A;B;A;A;A;B;B;B;A;C;B;A;B",0},
+    {327,12,"B;A;C;A;A;A;A;C;A;A;B;B;B;B;A;B;B;A;B;A;B;B",0},
+    {328,12,"B;A;C;A;B;A;A;B;A;B;B;A;B;B;B;A;B;A;A;A;C;B",2},
+    {329,21,"B;B;A;B;A;A;A;B;A;B;A;B;B;A;A;B;A;B;A;A;B;A;C;B;B;A;B;B;A;C;A;B;A;B;B;B;A;B;A;A",0},
+    {330,21,"A;A;B;B;A;A;B;B;B;A;B;B;B;B;B;B;B;B;A;A;A;A;C;B;A;B;A;A;A;B;A;A;B;A;B;A;A;A;C;B",0},
+    {331,21,"B;B;A;B;B;A;B;B;C;A;B;B;B;A;B;A;A;A;A;B;A;B;B;A;A;B;B;A;A;B;B;C;B;A;A;A;A;A;A;B",0},
+    {332,21,"A;B;A;B;B;A;B;B;A;B;A;A;A;B;B;A;B;B;A;B;B;B;B;A;A;B;B;A;A;C;B;B;C;A;B;A;A;A;A;A",0},
+    {333,21,"B;A;A;B;B;B;B;A;B;A;B;B;B;B;A;B;B;A;A;A;A;A;B;B;A;A;B;B;B;A;A;A;B;A;C;C;A;A;B;A",0},
+    {334,33,"B;B;A;A;B;B;B;B;A;A;B;A;B;A;A;B;A;A;B;B;A;A;C;A;B;A;B;B;B;B;A;A;B;B;B;B;A;A;B;A;A;B;B;A;A;A;B;A;A;C;B;B;B;B;A;B;A;A;A;A;B;A;A;B",0},
+    {335,33,"A;B;A;A;A;A;A;A;A;B;B;A;B;A;B;B;A;B;B;B;B;B;B;A;B;A;A;B;C;B;A;B;B;A;B;C;A;A;A;A;A;B;B;B;A;A;B;B;A;B;A;B;B;B;B;A;A;B;A;A;A;B;B;A",0},
+    {336,33,"A;B;B;B;A;A;B;B;A;A;A;A;A;B;C;A;A;B;A;B;A;C;A;B;A;B;A;B;B;B;A;A;B;A;B;B;B;A;B;A;A;B;B;B;B;B;A;B;B;B;A;B;A;B;A;A;A;B;A;A;B;A;A;B",8},
+    {337,100,"A;A;B;B;B;A;B;B;A;B;A;B;B;B;B;B;A;A;A;A;B;B;B;A;B;A;A;A;B;A;B;B;A;B;A;B;B;B;A;A;A;B;A;B;B;B;B;A;B;A;B;A;B;A;B;A;B;A;B;A;B;A;B;A;B;A;A;B;B;A;B;A;B;B;B;B;B;A;A;A;A;A;B;B;A;A;A;A;B;A;A;B;B;A;B;A;A;A;B;B;A;C;B;B;A;B;A;B;A;B;A;A;B;A;A;A;A;B;B;A;A;A;A;A;A;B;A;A;B;B;B;A;B;B;B;A;A;A;B;B;B;A;A;B;A;A;B;B;B;A;A;B;A;A;A;A;B;A;A;B;B;B;B;B;A;B;B;B;A;A;B;C;A;A;A;A;B;B;A;B;A;B;A;B;B;A;A;B;A;B;A;B;A;B;B;B;A;B",8},
+};
+// clang-format on
 
 struct RandomNumberGenerator {
   private:
@@ -373,6 +445,61 @@ template <int siz> struct Wreath {
                c_same_ring_penalty * 200 + c_different_ring_penalty * 100;
     }
 
+    inline void Read(const string s) {
+        Reset();
+        auto i = 0;
+        auto c_counts = 0;
+        for (const auto& c : s) {
+            if (c != 'A' && c != 'B' && c != 'C')
+                continue;
+            if (i == 0) {
+                intersections.set(0, c == 'B');
+                if (c == 'C')
+                    c_positions[c_counts++] = {WreathPosition::Arc::AOutside,
+                                               0};
+            } else if (i < ring_a_inside_size + 1) {
+                ring_a_inside.set(i - 1, c == 'B');
+                if (c == 'C')
+                    c_positions[c_counts++] = {WreathPosition::Arc::AInside,
+                                               (i8)(i - 1)};
+            } else if (i == ring_a_inside_size + 1) {
+                intersections.set(1, c == 'B');
+                if (c == 'C')
+                    c_positions[c_counts++] = {WreathPosition::Arc::AOutside,
+                                               1};
+            } else if (i < ring_a_inside_size + ring_a_outside_size + 2) {
+                ring_a_outside.set(i - ring_a_inside_size - 2, c == 'B');
+                if (c == 'C')
+                    c_positions[c_counts++] = {
+                        WreathPosition::Arc::AOutside,
+                        (i8)(i - ring_a_inside_size - 2)};
+            } else if (i < ring_a_inside_size + ring_a_outside_size + 2 +
+                               ring_b_outside_size) {
+                ring_b_outside.set(
+                    i - ring_a_inside_size - ring_a_outside_size - 2, c == 'B');
+                if (c == 'C')
+                    c_positions[c_counts++] = {
+                        WreathPosition::Arc::BOutside,
+                        (i8)(i - ring_a_inside_size - ring_a_outside_size - 2)};
+            } else if (i < ring_a_inside_size + ring_a_outside_size + 2 +
+                               ring_b_outside_size + ring_b_inside_size) {
+                ring_b_inside.set(i - ring_a_inside_size - ring_a_outside_size -
+                                      ring_b_outside_size - 2,
+                                  c == 'B');
+                if (c == 'C')
+                    c_positions[c_counts++] = {WreathPosition::Arc::BInside,
+                                               (i8)(i - ring_a_inside_size -
+                                                    ring_a_outside_size -
+                                                    ring_b_outside_size - 2)};
+            } else {
+                assert(false);
+            }
+            i++;
+        }
+        assert(c_counts == 2);
+        assert(i == siz * 2 - 2);
+    }
+
     inline void Display(ostream& os = cout) const {
         for (auto i = 0; i < ring_a_outside_size; i++)
             Get({WreathPosition::Arc::AOutside, (i8)i}).Display(os);
@@ -632,6 +759,78 @@ template <int siz, int scoring_depth> struct BeamSearchSolver {
     }
 }
 
+template <int siz> static void Solve(const Problem problem) {
+    // TODO: 何故か 290 が解けなかったりするので原因を探す
+
+    static constexpr auto kBeamWidthForEachDepth = 4;
+    static constexpr auto kScoringDepth = 12;
+
+    assert(problem.size == siz);
+    auto wreath = Wreath<siz>();
+    wreath.Read(problem.initial_state);
+    wreath.Display();
+    cout << endl;
+
+    auto solver = BeamSearchSolver<siz, kScoringDepth>(kBeamWidthForEachDepth);
+    const auto node = solver.Solve(wreath, problem.n_wildcards);
+    if (node != nullptr) {
+        cout << node->state.n_moves << endl;
+        auto moves = vector<Move>();
+        for (auto p = node; p->parent != nullptr; p = p->parent)
+            moves.push_back(Move{(Move::MoveType)p->state.last_move});
+        reverse(moves.begin(), moves.end());
+        auto oss = ostringstream();
+        for (auto i = 0; i < (int)moves.size(); i++) {
+            const auto mov = moves[i];
+            mov.Print(oss);
+            if (i != (int)moves.size() - 1)
+                oss << ".";
+            wreath.Rotate(mov);
+        }
+        const auto solution_string = oss.str();
+        cout << solution_string << endl;
+        wreath.Display();
+
+        // ファイルに結果を書き出す
+        auto ofs = ofstream(format("result/wreath/{}.txt", problem.id));
+        ofs << format("# n_moves={}\n", node->state.n_moves);
+        ofs << format("# kBeamWidthForEachDepth={}\n", kBeamWidthForEachDepth);
+        ofs << format("# kScoringDepth={}\n", kScoringDepth);
+        ofs << solution_string << endl;
+    }
+}
+
+[[maybe_unused]] static void Solve(const int problem_id) {
+    const auto it = find_if(kProblemData.begin(), kProblemData.end(),
+                            [problem_id](const Problem& problem) {
+                                return problem.id == problem_id;
+                            });
+    if (it == kProblemData.end()) {
+        cerr << "Problem not found." << endl;
+        exit(1);
+    }
+    const auto problem = *it;
+    switch (problem.size) {
+    case 6:
+        Solve<6>(problem);
+        break;
+    case 7:
+        Solve<7>(problem);
+        break;
+    case 12:
+        Solve<12>(problem);
+        break;
+    case 21:
+        Solve<21>(problem);
+        break;
+    case 33:
+        Solve<33>(problem);
+        break;
+    default:
+        assert(false);
+    }
+}
+
 // clang++ -std=c++20 -Wall -Wextra -O3 wreath.cpp -DTEST_WREATH
 #ifdef TEST_WREATH
 int main() { TestWreath(); }
@@ -645,4 +844,15 @@ int main() { InteractiveWreath(); }
 // clang++ -std=c++20 -Wall -Wextra -O3 wreath.cpp -DTEST_BEAM_SEARCH
 #ifdef TEST_BEAM_SEARCH
 int main() { TestBeamSearch(); }
+#endif
+
+// clang++ -std=c++20 -Wall -Wextra -O3 wreath.cpp -DSOLVE
+#ifdef SOLVE
+int main(const int argc, const char* const* const argv) {
+    if (argc != 2) {
+        cerr << format("Usage: {} <problem_id>", argv[0]) << endl;
+        return 1;
+    }
+    Solve(atoi(argv[1]));
+}
 #endif
