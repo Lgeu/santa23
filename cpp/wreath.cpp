@@ -566,7 +566,6 @@ template <int siz, int scoring_depth> struct State {
         scores[info.depth] = min(scores[info.depth], wreath.ComputeScore());
         if (info.depth == scoring_depth)
             return;
-        scores[info.depth] = wreath.ComputeScore();
         for (auto mov : {kMoveA, kMoveAp, kMoveB, kMoveBp}) {
             const auto inv_mov = mov.Inv();
             if (info.depth == 0) {

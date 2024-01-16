@@ -1,4 +1,4 @@
-# n_moves=9
+# n_moves=7
 # kBeamWidthForEachDepth=4
-# kScoringDepth=7
-l.-r.l.r.l.-r.l.l.r
+# kScoringDepth=12
+-r.-l.r.-l.-r.-l.-l
