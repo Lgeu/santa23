@@ -15,4 +15,4 @@ make all -j
 ./bin/face_formula 8 7 &
 ./bin/face_formula 8 8 &
 ./bin/face_formula 9 7 &
-./bin/face_formula 9 8 &
+./bin/face_formula 9 8 
