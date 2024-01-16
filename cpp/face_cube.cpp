@@ -1942,14 +1942,6 @@ template <int order> struct FaceBeamSearchSolver {
                 start_cube_copy.Rotate(solution);
                 start_cube_copy.Display(out);
 
-                beam_width *= 2;
-                if (n_threads >= 2) {
-                    for (auto& nodess : nodes) {
-                        // nodess.clear();
-                        nodess.resize(beam_width, start_node);
-                    }
-                }
-
                 // save to file
                 if (id >= 0) {
                     time_t now_time = time(nullptr);
@@ -1996,6 +1988,15 @@ template <int order> struct FaceBeamSearchSolver {
                         fout_best.close();
                     }
                 }
+
+                beam_width *= 2;
+                if (n_threads >= 2) {
+                    for (auto& nodess : nodes) {
+                        // nodess.clear();
+                        nodess.resize(beam_width, start_node);
+                    }
+                }
+
             } else {
                 break;
             }
