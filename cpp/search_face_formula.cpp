@@ -18,8 +18,7 @@ template <int order> struct FaceFormulaSearcher {
 
     FaceFormulaSearcher(const int max_depth)
         : max_depth(max_depth), start_cube(), results(), depth(), cube(),
-          move_history(), inner_rotations(), n_inner_rotations(),
-          slice_index_max(0) {
+          move_history(), inner_rotation_counts(), slice_index_max(0) {
         start_cube.Reset();
     }
 
@@ -39,12 +38,33 @@ template <int order> struct FaceFormulaSearcher {
         return results;
     }
 
+    struct InnerRotationCounts {
+        array<array<i8, order>, 3> counts; // (axis, depth) -> count
+        int distance_from_all_zero;
+
+        inline void Add(const Move mov) {
+            auto& count = counts[(int)mov.GetAxis()][mov.depth];
+            distance_from_all_zero -= count == 3 ? 1 : count;
+            count = (count + (mov.IsClockWise() ? 1 : -1)) & 3;
+            distance_from_all_zero += count == 3 ? 1 : count;
+        }
+
+        inline auto ComputeDeltaDistance(const Move mov) const {
+            const auto count = counts[(int)mov.GetAxis()][mov.depth];
+            const auto old_distance = count == 3 ? 1 : count;
+            const auto new_count = (count + (mov.IsClockWise() ? 1 : -1)) & 3;
+            const auto new_distance = new_count == 3 ? 1 : new_count;
+            const auto delta_distance = new_distance - old_distance;
+            assert(delta_distance == -1 || delta_distance == 1);
+            return delta_distance;
+        }
+    };
+
     vector<Formula> results;
     int depth;                                        // Dfs(), CheckValid()
     Cube cube;                                        // Dfs(), CheckValid()
     array<Move, 8> move_history;                      // Dfs(), CheckValid()
-    array<Move, kMaxNInnerRotations> inner_rotations; // Dfs()
-    int n_inner_rotations;                            // Dfs(), CheckValid()
+    InnerRotationCounts inner_rotation_counts;
     int slice_index_max;
 
     // 有効な手筋かチェックする
@@ -55,7 +75,7 @@ template <int order> struct FaceFormulaSearcher {
         if (depth <= 2)
             return true;
         // 面以外の回転の戻し残しが無い
-        if (n_inner_rotations != 0)
+        if (inner_rotation_counts.distance_from_all_zero != 0)
             return false;
         // 最後が面の回転でない (次の項目の下位互換なので無くても良い)
         if (move_history[depth - 1].IsFaceRotation<Cube::order>())
@@ -148,47 +168,42 @@ template <int order> struct FaceFormulaSearcher {
         if (CheckValid()) {
             const auto moves = vector<Move>(move_history.begin(),
                                             move_history.begin() + depth);
-            auto facelet_changes_array =
-                array<Formula::FaceletChange, (Cube::order - 2) * 24>();
-            auto n_facelet_changes = 0;
-            for (auto face_id = 0; face_id < 6; face_id++) {
-                for (const auto y : {0, Cube::order - 1})
-                    for (auto x = 1; x < Cube::order - 1; x++) {
-                        const auto pos =
-                            FaceletPosition{(i8)face_id, (i8)y, (i8)x};
-                        const auto color = cube.Get(pos);
-                        const auto original_pos =
-                            Cube::ComputeOriginalFaceletPosition(y, x, color);
-                        if (pos != original_pos)
-                            facelet_changes_array[n_facelet_changes++] = {
-                                original_pos, pos};
-                    }
-                for (const auto x : {0, Cube::order - 1})
-                    for (auto y = 1; y < Cube::order - 1; y++) {
-                        const auto pos =
-                            FaceletPosition{(i8)face_id, (i8)y, (i8)x};
-                        const auto color = cube.Get(pos);
-                        const auto original_pos =
-                            Cube::ComputeOriginalFaceletPosition(y, x, color);
-                        if (pos != original_pos)
-                            facelet_changes_array[n_facelet_changes++] = {
-                                original_pos, pos};
-                    }
-            }
+            /*             auto facelet_changes_array =
+                            array<Formula::FaceletChange, (Cube::order - 2) *
+               24>(); auto n_facelet_changes = 0; for (auto face_id = 0; face_id
+               < 6; face_id++) { for (const auto y : {0, Cube::order - 1}) for
+               (auto x = 1; x < Cube::order - 1; x++) { const auto pos =
+                                        FaceletPosition{(i8)face_id, (i8)y,
+               (i8)x}; const auto color = cube.Get(pos); const auto original_pos
+               = Cube::ComputeOriginalFaceletPosition(y, x, color); if (pos !=
+               original_pos) facelet_changes_array[n_facelet_changes++] = {
+                                            original_pos, pos};
+                                }
+                            for (const auto x : {0, Cube::order - 1})
+                                for (auto y = 1; y < Cube::order - 1; y++) {
+                                    const auto pos =
+                                        FaceletPosition{(i8)face_id, (i8)y,
+               (i8)x}; const auto color = cube.Get(pos); const auto original_pos
+               = Cube::ComputeOriginalFaceletPosition(y, x, color); if (pos !=
+               original_pos) facelet_changes_array[n_facelet_changes++] = {
+                                            original_pos, pos};
+                                }
+                        } */
             // if (n_facelet_changes != 0) {
             if (true) { // TODO デバッグ
                 // cout << n_facelet_changes << endl;
-                const auto facelet_changes = vector<Formula::FaceletChange>(
-                    facelet_changes_array.begin(),
-                    facelet_changes_array.begin() + n_facelet_changes);
-                results.emplace_back(moves, facelet_changes);
+                // const auto facelet_changes = vector<Formula::FaceletChange>(
+                //     facelet_changes_array.begin(),
+                //     facelet_changes_array.begin() + n_facelet_changes);
+                // results.emplace_back(moves, facelet_changes);
+                results.emplace_back(moves);
             }
             // valid ならば、それより深いところまで探索する必要は無い
             if (depth > 2)
                 return;
         }
         if (depth == max_depth) {
-            assert(n_inner_rotations == 0);
+            assert(inner_rotation_counts.distance_from_all_zero == 0);
             return;
         }
 
@@ -223,7 +238,8 @@ template <int order> struct FaceFormulaSearcher {
         };
 
         // 面の回転 (初手以外)
-        if (depth != 0 && n_inner_rotations < max_depth - depth) {
+        if (depth != 0 &&
+            inner_rotation_counts.distance_from_all_zero < max_depth - depth) {
             for (const i8 i : {0, Cube::order - 1}) {
                 for (auto direction = (i8)0; direction < 6; direction++) {
 
@@ -252,109 +268,63 @@ template <int order> struct FaceFormulaSearcher {
         }
 
         // 面以外の回転であって、面の変化を増やすもの
-        if (n_inner_rotations < max_depth - depth - 1 &&
-            n_inner_rotations < kMaxNInnerRotations) {
-            for (auto i = (i8)1; i < Cube::order - 1; i++) {
-                // 端から順番に回していく
-                bool flag_new_slice = false;
-                if constexpr (order % 2 == 1) {
-                    // odd
-                    if ((i != order / 2) && (slice_index_max + 2 <= i) &&
-                        (i <= order - slice_index_max - 2)) {
-                        continue;
-                    }
-                    if ((i != order / 2) && (i == slice_index_max + 1)) {
-                        flag_new_slice = true;
-                    }
-                } else {
-                    // even
-                    if ((slice_index_max + 2 <= i) &&
-                        (i <= order - slice_index_max - 2)) {
-                        continue;
-                    }
-                    if ((i < order / 2) && (i == slice_index_max + 1)) {
-                        flag_new_slice = true;
-                    }
+        // 面以外の回転
+        const auto can_increase =
+            inner_rotation_counts.distance_from_all_zero <
+                max_depth - depth - 1 &&
+            inner_rotation_counts.distance_from_all_zero < kMaxNInnerRotations;
+        const auto can_decrease =
+            depth >= 2 && inner_rotation_counts.distance_from_all_zero >= 1 &&
+            inner_rotation_counts.distance_from_all_zero <= max_depth - depth;
+        if (!can_increase && !can_decrease)
+            return;
+        for (auto i = (i8)1; i < Cube::order - 1; i++) {
+            // 端から順番に回していく
+            bool flag_new_slice = false;
+            if constexpr (order % 2 == 1) {
+                // odd
+                if ((i != order / 2) && (slice_index_max + 2 <= i) &&
+                    (i <= order - slice_index_max - 2)) {
+                    continue;
                 }
-
-                for (auto direction = (i8)0; direction < 6; direction++) {
-                    const auto mov = Move{(Move::Direction)direction, i};
-                    if (!can_be_next_move(mov))
-                        continue;
-                    // inner_rotations を減らすものは除外する
-                    const auto inv_mov = mov.Inv();
-                    for (auto idx_inner_rotations = 0;
-                         idx_inner_rotations < n_inner_rotations;
-                         idx_inner_rotations++) {
-                        if (inner_rotations[idx_inner_rotations] == inv_mov)
-                            goto next_incremental_inner_rotation_move;
-                    }
-                    inner_rotations[n_inner_rotations++] = mov;
-                    move_history[depth] = mov;
-                    cube.Rotate(mov);
-                    depth++;
-                    if (flag_new_slice) {
-                        slice_index_max++;
-                    }
-                    Dfs();
-                    depth--;
-                    if (flag_new_slice) {
-                        slice_index_max--;
-                    }
-                    cube.Rotate(inv_mov);
-                    n_inner_rotations--;
-                next_incremental_inner_rotation_move:;
+                if ((i != order / 2) && (i == slice_index_max + 1)) {
+                    flag_new_slice = true;
+                }
+            } else {
+                // even
+                if ((slice_index_max + 2 <= i) &&
+                    (i <= order - slice_index_max - 2)) {
+                    continue;
+                }
+                if ((i < order / 2) && (i == slice_index_max + 1)) {
+                    flag_new_slice = true;
                 }
             }
-        }
 
-        // 面以外の回転であって、面の変化を戻すもの
-        if (depth >= 2 && n_inner_rotations >= 1 &&
-            n_inner_rotations <= max_depth - depth) {
-            auto sorted_inner_rotations_indices =
-                array<int, kMaxNInnerRotations>();
-            iota(sorted_inner_rotations_indices.begin(),
-                 sorted_inner_rotations_indices.end(), 0);
-            sort(sorted_inner_rotations_indices.begin(),
-                 sorted_inner_rotations_indices.begin() + n_inner_rotations,
-                 [&](const int l, const int r) {
-                     return inner_rotations[l] < inner_rotations[r];
-                 });
-            for (auto i = 0; i < n_inner_rotations; i++) {
-                const auto idx_inner_rotations =
-                    sorted_inner_rotations_indices[i];
-                if (i >= 1) {
-                    const auto last_idx_inner_rotations =
-                        sorted_inner_rotations_indices[i - 1];
-                    if (inner_rotations[idx_inner_rotations] ==
-                        inner_rotations[last_idx_inner_rotations])
-                        continue; // 重複を除去
-                }
-                const auto inv_mov = inner_rotations[idx_inner_rotations];
-                const auto mov = inv_mov.Inv();
+            for (auto direction = (i8)0; direction < 6; direction++) {
+                const auto mov = Move{(Move::Direction)direction, i};
                 if (!can_be_next_move(mov))
                     continue;
-                for (auto d = depth - 1;; d--) {
-                    assert(d >= 0);
-                    // 他の軸の回転を挟まずに戻すのはだめ
-                    if (inv_mov == move_history[d])
-                        goto next_decremental_inner_rotation_move;
-                    // 他の軸の回転が見つかれば良し
-                    else if (mov.GetAxis() != move_history[d].GetAxis())
-                        break;
-                }
-                inner_rotations[idx_inner_rotations] =
-                    inner_rotations[--n_inner_rotations]; // 削除
+                const auto delta =
+                    inner_rotation_counts.ComputeDeltaDistance(mov);
+                if ((delta == 1 && !can_increase) ||
+                    (delta == -1 && !can_decrease))
+                    continue;
+                inner_rotation_counts.Add(mov);
+                const auto inv_mov = mov.Inv();
                 move_history[depth] = mov;
                 cube.Rotate(mov);
                 depth++;
+                if (flag_new_slice) {
+                    slice_index_max++;
+                }
                 Dfs();
                 depth--;
+                if (flag_new_slice) {
+                    slice_index_max--;
+                }
                 cube.Rotate(inv_mov);
-                inner_rotations[n_inner_rotations++] =
-                    inner_rotations[idx_inner_rotations];
-                inner_rotations[idx_inner_rotations] = inv_mov;
-            next_decremental_inner_rotation_move:;
+                inner_rotation_counts.Add(inv_mov);
             }
         }
     }
