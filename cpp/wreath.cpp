@@ -120,6 +120,7 @@ struct Color {
         Print(os);
         os << "\e[0m";
     }
+    inline auto operator<=>(const Color&) const = default;
 };
 [[maybe_unused]] static constexpr auto kColorA = Color{0};
 [[maybe_unused]] static constexpr auto kColorB = Color{1};
@@ -377,6 +378,7 @@ template <int siz> struct Wreath {
         auto c_same_ring_score = 0;
         auto c_same_ring_penalty = 0;
         auto c_different_ring_penalty = 0;
+        auto ab_intersection_score = 0;
         // 両方ともリング A 上の場合
         if (c_positions[0].IsOnRingA() && c_positions[1].IsOnRingA()) {
             const auto p0 = c_positions[0];
@@ -401,6 +403,7 @@ template <int siz> struct Wreath {
             // 間隔が適切でない
             else
                 c_same_ring_penalty = 1;
+            ab_intersection_score = intersections.count();
         }
         // 両方ともリング B 上の場合
         else if (c_positions[0].IsOnRingB() && c_positions[1].IsOnRingB()) {
@@ -435,14 +438,18 @@ template <int siz> struct Wreath {
                 else
                     c_same_ring_penalty = 1;
             }
+            ab_intersection_score =
+                (int)(Get({WreathPosition::Arc::Intersection, 0}) == kColorA) +
+                (int)(Get({WreathPosition::Arc::Intersection, 1}) == kColorA);
         }
         // 一方がリング A 上、一方がリング B 上の場合
         else {
             c_different_ring_penalty = 1;
         }
-        return (a_outside_score + b_outside_score) * 10 +
-               (a_inside_score + b_inside_score) * 10 + c_same_ring_score +
-               c_same_ring_penalty * 200 + c_different_ring_penalty * 100;
+        return (a_outside_score + b_outside_score) * 5 +
+               (a_inside_score + b_inside_score + ab_intersection_score) * 20 +
+               c_same_ring_score + c_same_ring_penalty * 200 +
+               c_different_ring_penalty * 100;
     }
 
     inline void Read(const string s) {
