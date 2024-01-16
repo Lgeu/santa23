@@ -759,8 +759,6 @@ template <int siz, int scoring_depth> struct BeamSearchSolver {
 }
 
 template <int siz> static void Solve(const Problem problem) {
-    // TODO: 何故か 290 が解けなかったりするので原因を探す
-
     static constexpr auto kBeamWidthForEachDepth = 4;
     static constexpr auto kScoringDepth = 12;
 

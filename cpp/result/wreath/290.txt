@@ -1,0 +1,4 @@
+# n_moves=10
+# kBeamWidthForEachDepth=4
+# kScoringDepth=12
+l.l.l.r.-l.-r.-l.-r.-l.-l
