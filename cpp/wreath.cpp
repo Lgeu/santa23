@@ -286,52 +286,21 @@ template <int siz> struct Wreath {
     }
 
     inline auto ComputeScore() const {
-        // 外側で揃っていない玉の距離
-        // ただし、短い方は 2 倍
         using Arc = WreathPosition::Arc;
-        auto a_outside_score = ring_a_outside_size * 3 / 2;
-        {
-            auto l = -1;
-            for (auto r = 0; r < ring_a_outside_size; r++) {
-                if (ring_a_outside.test(r)) { // B がある場合
-                    a_outside_score = min({
-                        a_outside_score,
-                        l + l + 2 + ring_a_outside_size - r,
-                        l + 1 + ring_a_outside_size * 2 - r - r,
-                    });
-                    l = r;
-                }
-            }
-            a_outside_score = min(a_outside_score, l + 1);
-        }
-        auto b_outside_score = ring_b_outside_size * 3 / 2;
-        {
-            auto l = -1;
-            for (auto r = 0; r < ring_b_outside_size; r++) {
-                const auto pos = WreathPosition{Arc::BOutside, (i8)r};
-                if (!ring_b_outside.test(r) && c_positions[0] != pos &&
-                    c_positions[1] != pos) { // A がある場合
-                    b_outside_score = min({
-                        b_outside_score,
-                        l + l + 2 + ring_b_outside_size - r,
-                        l + 1 + ring_b_outside_size * 2 - r - r,
-                    });
-                    l = r;
-                }
-            }
-            b_outside_score = min(b_outside_score, l + 1);
-        }
+        // 外側で揃っていない玉の数
+        const auto a_outside_score = (int)ring_a_outside.count();
+        const auto b_outside_score =
+            ring_b_outside_size - (int)ring_b_outside.count() -
+            (c_positions[0].arc == Arc::BOutside ? 1 : 0) -
+            (c_positions[1].arc == Arc::BOutside ? 1 : 0);
+
         // 内側で揃っていない玉の数
-        auto a_inside_score = 0;
-        for (auto i = 0; i < ring_a_inside_size; i++)
-            a_inside_score += ring_a_inside.test(i);
-        auto b_inside_score = 0;
-        for (auto i = 0; i < ring_b_inside_size; i++) {
-            const auto pos = WreathPosition{Arc::BInside, (i8)i};
-            if (!ring_b_inside.test(i) && c_positions[0] != pos &&
-                c_positions[1] != pos)
-                b_inside_score++;
-        }
+        const auto a_inside_score = (int)ring_a_inside.count();
+        const auto b_inside_score =
+            ring_b_inside_size - (int)ring_b_inside.count() -
+            (c_positions[0].arc == Arc::BInside ? 1 : 0) -
+            (c_positions[1].arc == Arc::BInside ? 1 : 0);
+
         // C の位置
         auto c_same_ring_score = 0;
         auto c_same_ring_penalty = 0;
