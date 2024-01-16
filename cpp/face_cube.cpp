@@ -1205,17 +1205,72 @@ template <int order> struct FaceNode {
           all_action(all_action) {}
     FaceState CopyState() const { return state; }
     int CostCorrection(const FaceAction& action) const {
+        // 愚直
+        // {
+        //     FaceAction action_tmp = ConcatAction(action);
+        //     return action_tmp.Cost() - all_action.Cost() - action.Cost();
+        // }
+
         // return 0;
         // 手筋結合用補正
         int correction = 0;
-        int n = min((int)action.moves.size(), (int)all_action.moves.size());
-        for (int i = 0; i < n; i++) {
-            if (all_action.moves[all_action.moves.size() - 1 - i].Inv() ==
-                action.moves[i])
+        int idx_action = 0;
+        int idx_all_action = (int)all_action.moves.size() - 1;
+        while (idx_action < (int)action.moves.size() && idx_all_action >= 0) {
+            const int n_left_action = (int)action.moves.size() - idx_action;
+            const int n_left_all_action = idx_all_action + 1;
+            if (n_left_action >= 2 && n_left_all_action >= 2 &&
+                // l.l.l.l -> .
+                action.moves[idx_action] == action.moves[idx_action + 1] &&
+                action.moves[idx_action] == all_action.moves[idx_all_action] &&
+                action.moves[idx_action] ==
+                    all_action.moves[idx_all_action - 1]) {
+                idx_action += 2;
+                idx_all_action -= 2;
+                correction -= 4;
+            } else if (n_left_action >= 2 && n_left_all_action >= 2 &&
+                       // l.l.-l.-l -> .
+                       action.moves[idx_action] ==
+                           action.moves[idx_action + 1] &&
+                       action.moves[idx_action] ==
+                           all_action.moves[idx_all_action].Inv() &&
+                       all_action.moves[idx_all_action] ==
+                           all_action.moves[idx_all_action - 1]) {
+                idx_action += 2;
+                idx_all_action -= 2;
+                correction -= 4;
+            } else if (n_left_action >= 1 && n_left_all_action >= 2 &&
+                       // l.l.l -> -l
+                       action.moves[idx_action] ==
+                           all_action.moves[idx_all_action] &&
+                       action.moves[idx_action] ==
+                           all_action.moves[idx_all_action - 1]) {
+                // idx_action += 1;
+                // idx_all_action -= 2;
                 correction -= 2;
-            else
                 break;
+            } else if (n_left_action >= 2 && n_left_all_action >= 1 &&
+                       // l.l.l -> -l
+                       action.moves[idx_action] ==
+                           action.moves[idx_action + 1] &&
+                       action.moves[idx_action] ==
+                           all_action.moves[idx_all_action]) {
+                // idx_action += 2;
+                // idx_all_action -= 1;
+                correction -= 2;
+                break;
+            } else if (n_left_action >= 1 && n_left_all_action >= 1 &&
+                       // l.-l -> .
+                       action.moves[idx_action].Inv() ==
+                           all_action.moves[idx_all_action]) {
+                idx_action += 1;
+                idx_all_action -= 1;
+                correction -= 2;
+            } else {
+                break;
+            }
         }
+
         // {
         //     auto action_tmp = ConcatAction(action);
         //     if (action_tmp.moves.size() !=
@@ -1227,6 +1282,12 @@ template <int order> struct FaceNode {
         //         cerr << action_tmp.moves.size() << " "
         //              << all_action.moves.size() << " " << action.moves.size()
         //              << " " << correction << endl;
+        //         action_tmp.Print(cerr);
+        //         cerr << endl;
+        //         all_action.Print(cerr);
+        //         cerr << endl;
+        //         action.Print(cerr);
+        //         cerr << endl;
         //         exit(1);
         //     }
         // }
@@ -1237,19 +1298,41 @@ template <int order> struct FaceNode {
         // return all_action + action
         // ただし、all_action と action の最後の手筋が逆の場合は、それらを消す
         FaceAction ret = all_action;
-        int n = min((int)action.moves.size(), (int)all_action.moves.size());
-        int idx_begin = 0;
-        for (int i = 0; i < n; i++) {
-            if (ret.moves.back().Inv() == action.moves[i]) {
+        int idx_action = 0;
+        // int idx_ret = (int)ret.moves.size() - 1;
+        while (idx_action < (int)action.moves.size()) {
+            // l.l.l -> -l
+            if (ret.moves.size() >= 2 &&
+                ret.moves[ret.moves.size() - 1] ==
+                    ret.moves[ret.moves.size() - 2] &&
+                ret.moves[ret.moves.size() - 1] == action.moves[idx_action]) {
                 ret.moves.pop_back();
-                idx_begin++;
+                ret.moves[ret.moves.size() - 1] =
+                    ret.moves[ret.moves.size() - 1].Inv();
+                idx_action++;
+            } else if (ret.moves.size() >= 1 &&
+                       ret.moves[ret.moves.size() - 1] ==
+                           action.moves[idx_action].Inv()) {
+                ret.moves.pop_back();
+                idx_action++;
             } else {
-                break;
+                ret.moves.emplace_back(action.moves[idx_action]);
+                idx_action++;
             }
         }
-        for (int i = idx_begin; i < (int)action.moves.size(); i++) {
-            ret.moves.emplace_back(action.moves[i]);
-        }
+        // int n = min((int)action.moves.size(), (int)all_action.moves.size());
+        // int idx_begin = 0;
+        // for (int i = 0; i < n; i++) {
+        //     if (ret.moves.back().Inv() == action.moves[i]) {
+        //         ret.moves.pop_back();
+        //         idx_begin++;
+        //     } else {
+        //         break;
+        //     }
+        // }
+        // for (int i = idx_begin; i < (int)action.moves.size(); i++) {
+        //     ret.moves.emplace_back(action.moves[i]);
+        // }
         return ret;
     }
 };
