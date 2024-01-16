@@ -446,8 +446,8 @@ template <int siz> struct Wreath {
         else {
             c_different_ring_penalty = 1;
         }
-        return (a_outside_score + b_outside_score) * 5 +
-               (a_inside_score + b_inside_score + ab_intersection_score) * 20 +
+        return (a_outside_score + b_outside_score) * 10 +
+               (a_inside_score + b_inside_score + ab_intersection_score) * 10 +
                c_same_ring_score + c_same_ring_penalty * 200 +
                c_different_ring_penalty * 100;
     }
