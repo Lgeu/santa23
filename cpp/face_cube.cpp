@@ -45,10 +45,14 @@ constexpr int Order = ORDER;
 constexpr int OrderFormula = 4;
 #elif ORDER == 5
 constexpr int OrderFormula = 5;
-#elif ORDER % 2 == 0
+#elif ORDER == 6
 constexpr int OrderFormula = 6;
-#else
+#elif ORDER == 7
 constexpr int OrderFormula = 7;
+#elif ORDER % 2 == 0
+constexpr int OrderFormula = 8;
+#else
+constexpr int OrderFormula = 9;
 #endif
 
 // const auto formula_file = "out/face_formula_7_7.txt";

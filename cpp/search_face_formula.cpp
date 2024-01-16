@@ -63,7 +63,7 @@ template <int order> struct FaceFormulaSearcher {
     vector<Formula> results;
     int depth;                                        // Dfs(), CheckValid()
     Cube cube;                                        // Dfs(), CheckValid()
-    array<Move, 8> move_history;                      // Dfs(), CheckValid()
+    array<Move, 10> move_history;                     // Dfs(), CheckValid()
     InnerRotationCounts inner_rotation_counts;
     int slice_index_max;
 
