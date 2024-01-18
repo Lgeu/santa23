@@ -659,9 +659,12 @@ template <int order> struct EdgeBeamSearchSolver {
         const auto start_state = EdgeState(start_cube, target_cube);
         const auto start_node = make_shared<EdgeNode>(
             start_state, nullptr, EdgeAction{vector<Move>()});
+        nodes.clear();
         nodes.resize(1);
         nodes[0].push_back(start_node);
 
+        auto minimum_scores = array<int, 16>();
+        fill(minimum_scores.begin(), minimum_scores.end(), 9999);
         for (auto current_cost = 0; current_cost < 100000; current_cost++) {
             auto current_minimum_score = 9999;
             for (const auto& node : nodes[current_cost]) {
@@ -693,10 +696,13 @@ template <int order> struct EdgeBeamSearchSolver {
             cout << format("current_cost={} current_minimum_score={}",
                            current_cost, current_minimum_score)
                  << endl;
-            if (nodes[current_cost][0]->state.score == 4) {
+            if (nodes[current_cost][0]->state.score ==
+                minimum_scores[current_cost % 16]) {
+                cerr << "Failed." << endl;
                 nodes[current_cost][0]->state.cube.Display();
-                exit(1);
+                return nullptr;
             }
+            minimum_scores[current_cost % 16] = current_minimum_score;
             nodes[current_cost].clear();
         }
         cerr << "Failed." << endl;
@@ -822,6 +828,144 @@ template <int order> struct EdgeBeamSearchSolver {
     }
 }
 
+template <int order>
+static void SolveWithOrder(const int problem_id, const bool is_normal,
+                           const Formula& sample_formula) {
+    constexpr auto beam_width = 4;
+    constexpr auto formula_depth = 7;
+    const auto formula_file =
+        format("out/edge_formula_{}_{}.txt", order, formula_depth);
+
+    // 面ソルバの出力を読み込む
+    const auto face_solution_file =
+        format("solution_face/{}_best.txt", problem_id);
+    auto face_solution_string = string();
+    auto ifs = ifstream(face_solution_file);
+    if (!ifs.good()) {
+        cerr << format("Cannot open file `{}`.", face_solution_file) << endl;
+        abort();
+    }
+    getline(ifs, face_solution_string);
+    ifs.close();
+    const auto face_solution = Formula(face_solution_string);
+
+    // 初期値の設定など
+    auto initial_cube = Cube<order, ColorType6>();
+    initial_cube.Reset();
+    initial_cube.RotateInv(sample_formula);
+    initial_cube.Rotate(face_solution);
+    initial_cube.Display();
+    cout << endl;
+    auto initial_edge_cube = EdgeCube<order>();
+    initial_edge_cube.FromCube(initial_cube);
+    auto target_edge_cube = EdgeCube<order>();
+    target_edge_cube.Reset();
+
+    // 解く
+    auto solver =
+        EdgeBeamSearchSolver<order>(target_edge_cube, beam_width, formula_file);
+    const auto node = solver.Solve(initial_edge_cube);
+    if (node == nullptr) // 失敗
+        return;
+
+    // 結果を表示する
+    cout << node->state.n_moves << endl;
+    auto moves = vector<Move>();
+    for (auto p = node; p->parent != nullptr; p = p->parent)
+        for (auto i = (int)p->last_action.moves.size() - 1; i >= 0; i--)
+            moves.emplace_back(p->last_action.moves[i]);
+    reverse(moves.begin(), moves.end());
+    const auto solution = Formula(moves);
+    solution.Print();
+    cout << endl;
+    if (is_normal) {
+        initial_cube.Rotate(solution);
+        initial_cube.Display();
+    } else {
+        auto cube = Cube<order, ColorType24>();
+        cube.Reset();
+        cube.RotateInv(sample_formula);
+        cube.Rotate(face_solution);
+        cube.Rotate(solution);
+        cube.Display();
+    }
+
+    // 結果を保存する
+    const auto all_solutions_file =
+        format("solution_edge/{}_all.txt", problem_id);
+    const auto best_solution_file =
+        format("solution_edge/{}_best.txt", problem_id);
+    auto ofs_all = ofstream(all_solutions_file, ios::app);
+    if (ofs_all.good()) {
+        solution.Print(ofs_all);
+        ofs_all << endl
+                << format("score={} beam_width={} formula_depth={}",
+                          solution.Cost(), beam_width, formula_depth)
+                << endl;
+        ofs_all.close();
+    } else {
+        cerr << format("Cannot open file `{}`.", all_solutions_file) << endl;
+    }
+    auto ifs_best = ifstream(best_solution_file);
+    auto best_score = 99999;
+    if (ifs_best.good()) {
+        string line;
+        getline(ifs_best, line); // 面の解を読み飛ばす
+        getline(ifs_best, line); // 面のスコアを読み飛ばす
+        getline(ifs_best, line); // 辺の解を読み飛ばす
+        getline(ifs_best, line); // 辺のスコアの行を読む
+        best_score = stoi(line);
+        ifs_best.close();
+    }
+    if (solution.Cost() < best_score) {
+        auto ofs_best = ofstream(best_solution_file);
+        if (ofs_best.good()) {
+            face_solution.Print(ofs_best);
+            ofs_best << endl << face_solution.Cost() << endl;
+            solution.Print(ofs_best);
+            ofs_best << endl << solution.Cost() << endl;
+            ofs_best.close();
+        } else
+            cerr << format("Cannot open file `{}`.", best_solution_file)
+                 << endl;
+    }
+}
+
+[[maybe_unused]] static void Solve(const int problem_id) {
+    const auto filename_puzzles = "../input/puzzles.csv";
+    const auto filename_sample = "../input/sample_submission.csv";
+    const auto [order, is_normal, sample_formula] =
+        ReadKaggleInput(filename_puzzles, filename_sample, problem_id);
+    switch (order) {
+    case 5:
+        SolveWithOrder<5>(problem_id, is_normal, sample_formula);
+        break;
+    case 6:
+        SolveWithOrder<6>(problem_id, is_normal, sample_formula);
+        break;
+    case 7:
+        SolveWithOrder<7>(problem_id, is_normal, sample_formula);
+        break;
+    case 8:
+        SolveWithOrder<8>(problem_id, is_normal, sample_formula);
+        break;
+    case 9:
+        SolveWithOrder<9>(problem_id, is_normal, sample_formula);
+        break;
+    case 10:
+        SolveWithOrder<10>(problem_id, is_normal, sample_formula);
+        break;
+    case 19:
+        SolveWithOrder<19>(problem_id, is_normal, sample_formula);
+        break;
+    case 33:
+        SolveWithOrder<33>(problem_id, is_normal, sample_formula);
+        break;
+    default:
+        assert(false);
+    }
+}
+
 // clang++ -std=c++20 -Wall -Wextra -O3 edge_cube.cpp -DTEST_EDGE_CUBE
 #ifdef TEST_EDGE_CUBE
 int main() { TestEdgeCube(); }
@@ -847,4 +991,16 @@ int main() { TestEdgeActionCandidateGenerator(); }
 // clang++ -std=c++20 -Wall -Wextra -O3 edge_cube.cpp -DTEST_EDGE_BEAM_SEARCH
 #ifdef TEST_EDGE_BEAM_SEARCH
 int main() { TestEdgeBeamSearch(); }
+#endif
+
+// clang++ -std=c++20 -Wall -Wextra -O3 edge_cube.cpp -DSOLVE
+#ifdef SOLVE
+int main(const int argc, const char* const* const argv) {
+    if (argc != 2) {
+        cerr << format("Usage: {} <problem_id>", argv[0]) << endl;
+        return 1;
+    }
+    const auto problem_id = atoi(argv[1]);
+    Solve(problem_id);
+}
 #endif
