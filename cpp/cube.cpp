@@ -22,9 +22,12 @@ using std::istringstream;
 using std::make_shared;
 using std::ofstream;
 using std::ostream;
+using std::pair;
 using std::same_as;
 using std::shared_ptr;
 using std::string;
+using std::stringstream;
+using std::tuple;
 using std::vector;
 using ios = std::ios;
 
@@ -228,6 +231,25 @@ struct Face {
         }
     }
 
+    inline ColorType Get(const int y, const int x,
+                         const int orientation) const {
+        assert(0 <= y && y < order);
+        assert(0 <= x && x < order);
+        switch (orientation) {
+        case 0:
+            return facelets[y][x];
+        case 1:
+            return facelets[x][order - 1 - y];
+        case 2:
+            return facelets[order - 1 - y][order - 1 - x];
+        case 3:
+            return facelets[order - 1 - x][y];
+        default:
+            assert(false);
+            return {};
+        }
+    }
+
     inline void Set(const int y, const int x, const ColorType color) {
         assert(0 <= y && y < order);
         assert(0 <= x && x < order);
@@ -269,6 +291,37 @@ struct Face {
     {
         return hash_value;
     }
+
+    inline int GetOrientation() const { return orientation; }
+
+    inline int SetOrientation(const int orientation_) {
+        orientation = orientation_;
+    }
+
+    inline pair<int, int> GetInternalCoordinate(const int y,
+                                                const int x) const {
+        assert(0 <= y && y < order);
+        assert(0 <= x && x < order);
+        switch (orientation) {
+        case 0:
+            return {y, x};
+        case 1:
+            return {x, order - 1 - y};
+        case 2:
+            return {order - 1 - y, order - 1 - x};
+        case 3:
+            return {order - 1 - x, y};
+        default:
+            assert(false);
+            return {};
+        }
+    }
+
+    inline ColorType GetRaw(const int y, const int x) const {
+        assert(0 <= y && y < order);
+        assert(0 <= x && x < order);
+        return facelets[y][x];
+    }
 };
 
 // 手 (90 度回転)
@@ -305,6 +358,12 @@ struct FaceletPosition {
     inline auto operator<=>(const FaceletPosition&) const = default;
 };
 
+// orientation を考慮しないマスの位置
+struct FaceletPositionRaw {
+    i8 face_id, y, x;
+    inline auto operator<=>(const FaceletPositionRaw&) const = default;
+};
+
 template <int order_, typename ColorType_> struct Cube;
 
 template <class T>
@@ -326,21 +385,33 @@ struct Formula {
     struct FaceletChange {
         FaceletPosition from, to;
     };
+    struct FaceletChangeRaw {
+        FaceletPositionRaw from, to;
+    };
 
     // 手の列
     vector<Move> moves;
     // facelet_changes を使うかどうか
     bool use_facelet_changes;
+    bool use_facelet_changes_raw;
     // 手筋を適用することでどのマスがどこに移動するか (TODO)
     vector<FaceletChange> facelet_changes;
+    vector<FaceletChangeRaw> facelet_changes_raw;
+
+    inline Formula()
+        : moves(), use_facelet_changes(false), use_facelet_changes_raw(false),
+          facelet_changes(), facelet_changes_raw() {}
 
     inline Formula(const vector<Move>& moves)
-        : moves(moves), use_facelet_changes(false), facelet_changes() {}
+        : moves(moves), use_facelet_changes(false),
+          use_facelet_changes_raw(false), facelet_changes(),
+          facelet_changes_raw() {}
 
     inline Formula(const vector<Move>& moves,
                    const vector<FaceletChange>& facelet_changes)
         : moves(moves), use_facelet_changes(true),
-          facelet_changes(facelet_changes) {}
+          use_facelet_changes_raw(false), facelet_changes(facelet_changes),
+          facelet_changes_raw() {}
 
     // f1.d0.-r0.-f1 のような形式を読み取る
     inline Formula(const string& s)
@@ -396,6 +467,165 @@ struct Formula {
         }
     }
 
+    template <Cubeish CubeType> inline void EnableFaceletChangesAll() {
+        if (use_facelet_changes)
+            return;
+        use_facelet_changes = true;
+        facelet_changes.clear();
+        auto cube = CubeType();
+        cube.Reset();
+        for (const auto& mov : moves)
+            cube.Rotate(mov);
+
+        for (const FaceletPosition pos : CubeType::AllFaceletPositions()) {
+            const auto color = cube.Get(pos);
+            const auto original_pos =
+                CubeType::ComputeOriginalFaceletPosition(pos.y, pos.x, color);
+        }
+    }
+
+    inline void DisableFaceletChanges() {
+        use_facelet_changes = false;
+        facelet_changes.clear();
+    }
+
+    // FaceletPositionRaw が異なるものだけを残す
+    // 目的: 面回転時に FaceletChange が計算さえれのを防ぐ
+    template <Cubeish CubeType>
+    inline void EnableFaceletChangesWithNoSameRaw() {
+        // if (use_facelet_changes)
+        //     return;
+        use_facelet_changes = true;
+        facelet_changes.clear();
+        auto cube = CubeType();
+        cube.Reset();
+        for (const auto& mov : moves)
+            cube.Rotate(mov);
+
+        for (const FaceletPosition pos : CubeType::AllFaceletPositions()) {
+            // const auto color = cube.Get(pos);
+            // const auto original_pos =
+            //     CubeType::ComputeOriginalFaceletPosition(pos.y, pos.x,
+            //     color);
+
+            // FaceletPositionRaw pos_raw = {pos.face_id, pos.y, pos.x};
+            // auto [original_pos_raw_y, original_pos_raw_x] =
+            //     cube.faces[original_pos.face_id].GetInternalCoordinate(
+            //         original_pos.y, original_pos.x);
+            // FaceletPositionRaw original_pos_raw = {original_pos.face_id,
+            //                                        (i8)original_pos_raw_y,
+            //                                        (i8)original_pos_raw_x};
+
+            // if (pos != original_pos && pos_raw != original_pos_raw)
+            //     facelet_changes.push_back({original_pos, pos});
+
+            const auto color = cube.Get(pos);
+            const auto original_pos =
+                CubeType::ComputeOriginalFaceletPosition(pos.y, pos.x, color);
+            auto [pos_raw_y, pos_raw_x] =
+                cube.faces[pos.face_id].GetInternalCoordinate(pos.y, pos.x);
+            FaceletPosition pos_raw = {pos.face_id, (i8)pos_raw_y,
+                                       (i8)pos_raw_x};
+
+            if (pos_raw != original_pos)
+                facelet_changes.push_back({original_pos, pos});
+        }
+    }
+
+    // 辺と角の FaceletChange を削除
+    // 面ビーム用
+    template <Cubeish CubeType> inline void DisableFaceletChangeEdgeCorner() {
+        if (!use_facelet_changes)
+            return;
+        int idx = 0;
+        int order = CubeType::order;
+        while (idx < (int)facelet_changes.size()) {
+            const auto& facelet_change = facelet_changes[idx];
+            int y = facelet_change.from.y, x = facelet_change.from.x;
+            if ((y == 0 || y == order - 1) || (x == 0 || x == order - 1)) {
+                facelet_changes[idx] = facelet_changes.back();
+                facelet_changes.pop_back();
+            } else {
+                idx++;
+            }
+        }
+    }
+
+    // 同じ面に移動する FaceletChange を削除
+    // 面ビーム用
+    template <Cubeish CubeType> inline void DisableFaceletChangeSameFace() {
+        if (!use_facelet_changes)
+            return;
+        int idx = 0;
+        while (idx < (int)facelet_changes.size()) {
+            const auto& facelet_change = facelet_changes[idx];
+            if (facelet_change.from.face_id == facelet_change.to.face_id) {
+                // cerr << "DisableFaceletChangeSameFace: "
+                //      << (int)facelet_change.from.face_id << " "
+                //      << (int)facelet_change.from.y << " "
+                //      << (int)facelet_change.from.x << " -> "
+                //      << (int)facelet_change.to.y << " "
+                //      << (int)facelet_change.to.x << endl;
+                facelet_changes[idx] = facelet_changes.back();
+                facelet_changes.pop_back();
+            } else {
+                idx++;
+            }
+        }
+    }
+
+    template <Cubeish CubeType> inline void EnableFaceletChangesRaw() {
+        if (use_facelet_changes_raw)
+            return;
+        use_facelet_changes_raw = true;
+        facelet_changes_raw.clear();
+        auto cube = CubeType();
+        cube.Reset();
+
+        for (int i = 0; i < 6; i++) {
+            assert(cube.faces[i].GetOrientation() == 0);
+        }
+
+        for (const auto& mov : moves)
+            cube.Rotate(mov);
+
+        for (const FaceletPosition pos : CubeType::AllFaceletPositions()) {
+            const auto color = cube.Get(pos);
+
+            // original_pos の orientation は 0
+            const auto original_pos =
+                CubeType::ComputeOriginalFaceletPosition(pos.y, pos.x, color);
+
+            FaceletPositionRaw pos_raw = {pos.face_id, pos.y, pos.x};
+            auto [original_pos_raw_y, original_pos_raw_x] =
+                cube.faces[original_pos.face_id].GetInternalCoordinate(
+                    original_pos.y, original_pos.x);
+            FaceletPositionRaw original_pos_raw = {original_pos.face_id,
+                                                   (i8)original_pos_raw_y,
+                                                   (i8)original_pos_raw_x};
+            if (pos_raw != original_pos_raw)
+                facelet_changes_raw.push_back({original_pos_raw, pos_raw});
+        }
+    }
+
+    template <Cubeish CubeType>
+    inline void DisableFaceletChangeRawEdgeCorner() {
+        if (!use_facelet_changes_raw)
+            return;
+        int idx = 0;
+        int order = CubeType::order;
+        while (idx < (int)facelet_changes_raw.size()) {
+            const auto& facelet_change_raw = facelet_changes_raw[idx];
+            int y = facelet_change_raw.from.y, x = facelet_change_raw.from.x;
+            if ((y == 0 || y == order - 1) || (x == 0 || x == order - 1)) {
+                facelet_changes_raw[idx] = facelet_changes_raw.back();
+                facelet_changes_raw.pop_back();
+            } else {
+                idx++;
+            }
+        }
+    }
+
     // f1.d0.-r0.-f1 のような形式で出力する
     inline void Print(ostream& os = cout) const {
         for (auto i = 0; i < (int)moves.size(); i++) {
@@ -433,6 +663,70 @@ template <int order_, typename ColorType_ = ColorType6> struct Cube {
     enum { D1, F0, R0, F1, R1, D0 };
 
     array<Face<order, ColorType>, 6> faces;
+
+    inline static i8 GetOppositeFaceId(const i8 face_id) {
+        if (face_id == D0)
+            return D1;
+        if (face_id == D1)
+            return D0;
+        if (face_id == F0)
+            return F1;
+        if (face_id == F1)
+            return F0;
+        if (face_id == R0)
+            return R1;
+        if (face_id == R1)
+            return R0;
+        assert(false);
+        return -1;
+    }
+
+    inline static i8 GetFaceDistance(const i8 face_id1, const i8 face_id2) {
+        if constexpr (is_same_v<ColorType, ColorType6>) {
+            // normal face
+            if (face_id1 == face_id2)
+                return 0;
+            if (face_id1 == GetOppositeFaceId(face_id2))
+                return 2;
+            return 1;
+        } else
+            assert(false);
+        return -1;
+    }
+
+    inline static Move GetFaceRotateMove(const i8 face_id) {
+        if (face_id == F0)
+            return {Move::Direction::F, 0};
+        if (face_id == F1)
+            return {Move::Direction::F, order - 1};
+        if (face_id == D0)
+            return {Move::Direction::D, 0};
+        if (face_id == D1)
+            return {Move::Direction::D, order - 1};
+        if (face_id == R0)
+            return {Move::Direction::R, 0};
+        if (face_id == R1)
+            return {Move::Direction::R, order - 1};
+        assert(false);
+        return {};
+    }
+
+    inline static Move GetFaceRotateMoveInv(const i8 face_id) {
+        if (face_id == F0)
+            return {Move::Direction::Fp, 0};
+        if (face_id == F1)
+            return {Move::Direction::Fp, order - 1};
+        if (face_id == D0)
+            return {Move::Direction::Dp, 0};
+        if (face_id == D1)
+            return {Move::Direction::Dp, order - 1};
+        if (face_id == R0)
+            return {Move::Direction::Rp, 0};
+        if (face_id == R1)
+            return {Move::Direction::Rp, order - 1};
+        assert(false);
+        return {};
+    }
 
     inline void Reset() {
         if constexpr (is_same_v<ColorType, ColorType6>) {
@@ -549,12 +843,85 @@ template <int order_, typename ColorType_ = ColorType6> struct Cube {
 #undef FROM_RIGHT
     }
 
+    inline void RotateOrientation(const Move& mov) {
+#define FROM_BOTTOM order - 1 - mov.depth, i
+#define FROM_LEFT i, mov.depth
+#define FROM_TOP mov.depth, order - 1 - i
+#define FROM_RIGHT order - 1 - i, order - 1 - mov.depth
+        switch (mov.direction) {
+        case Move::Direction::F:
+            if (mov.depth == 0)
+                faces[F0].RotateCW(1);
+            else if (mov.depth == order - 1)
+                faces[F1].RotateCW(-1);
+            break;
+        case Move::Direction::Fp:
+            if (mov.depth == 0)
+                faces[F0].RotateCW(-1);
+            else if (mov.depth == order - 1)
+                faces[F1].RotateCW(1);
+            break;
+        case Move::Direction::D:
+            if (mov.depth == 0)
+                faces[D0].RotateCW(1);
+            else if (mov.depth == order - 1)
+                faces[D1].RotateCW(-1);
+            break;
+        case Move::Direction::Dp:
+            if (mov.depth == 0)
+                faces[D0].RotateCW(-1);
+            else if (mov.depth == order - 1)
+                faces[D1].RotateCW(1);
+            break;
+        case Move::Direction::R:
+            if (mov.depth == 0)
+                faces[R0].RotateCW(1);
+            else if (mov.depth == order - 1)
+                faces[R1].RotateCW(-1);
+            break;
+        case Move::Direction::Rp:
+            if (mov.depth == 0)
+                faces[R0].RotateCW(-1);
+            else if (mov.depth == order - 1)
+                faces[R1].RotateCW(1);
+            break;
+        }
+#undef FROM_BOTTOM
+#undef FROM_LEFT
+#undef FROM_TOP
+#undef FROM_RIGHT
+    }
+
     inline void Rotate(const Formula& formula) {
-        if (formula.use_facelet_changes)
-            assert(false); // TODO
-        else
-            for (const auto& m : formula.moves)
-                Rotate(m);
+        // if (formula.use_facelet_changes)
+        //     assert(false); // TODO
+        // else
+        for (const auto& m : formula.moves)
+            Rotate(m);
+    }
+
+    inline void RotateInv(const Formula& formula) {
+        // if (formula.use_facelet_changes)
+        //     assert(false); // TODO
+        // else
+        for (int i = (int)formula.Cost() - 1; i >= 0; i--)
+            Rotate(formula.moves[i].Inv());
+    }
+
+    inline void RotateOrientation(const Formula& formula) {
+        // if (formula.use_facelet_changes)
+        //     assert(false); // TODO
+        // else
+        for (const auto& m : formula.moves)
+            RotateOrientation(m);
+    }
+
+    inline void RotateOrientationInv(const Formula& formula) {
+        // if (formula.use_facelet_changes)
+        //     assert(false); // TODO
+        // else
+        for (int i = (int)formula.Cost() - 1; i >= 0; i--)
+            RotateOrientation(formula.moves[i].Inv());
     }
 
     inline static constexpr auto AllFaceletPositions() {
@@ -574,6 +941,15 @@ template <int order_, typename ColorType_ = ColorType6> struct Cube {
     inline auto Get(const FaceletPosition& facelet_position) const {
         return Get(facelet_position.face_id, facelet_position.y,
                    facelet_position.x);
+    }
+
+    inline auto GetRaw(const int face_id, const int y, const int x) const {
+        return faces[face_id].GetRaw(y, x);
+    }
+
+    inline auto GetRaw(const FaceletPositionRaw& facelet_position_raw) const {
+        return GetRaw(facelet_position_raw.face_id, facelet_position_raw.y,
+                      facelet_position_raw.x);
     }
 
     inline auto Set(const int face_id, const int y, const int x,
@@ -730,6 +1106,78 @@ template <int order_, typename ColorType_ = ColorType6> struct Cube {
         }
     }
 };
+
+// kaggleの入力を読む
+tuple<int, bool, Formula> ReadKaggleInput(const string& filename_puzzles,
+                                          const string& filename_sample,
+                                          const int id) {
+    // return {puzzle_size, is_normal, sample_formula}
+    if (id < 0 || id > 284) {
+        cerr << "id must be in [0, 284]" << endl;
+        abort();
+    }
+
+    // id+1 行目を読む
+    auto ifs_puzzles = ifstream(filename_puzzles);
+    if (!ifs_puzzles.good()) {
+        cerr << format("Cannot open file `{}`.", filename_puzzles) << endl;
+        abort();
+    }
+    auto ifs_sample = ifstream(filename_sample);
+    if (!ifs_sample.good()) {
+        cerr << format("Cannot open file `{}`.", filename_sample) << endl;
+        abort();
+    }
+    string s_puzzles, s_sample;
+    for (auto i = 0; i <= id + 1; i++)
+        getline(ifs_puzzles, s_puzzles);
+    for (auto i = 0; i <= id + 1; i++)
+        getline(ifs_sample, s_sample);
+
+    string puzzle_type;
+    string s_formula;
+    string solution_state;
+    int puzzle_size = 0;
+    bool is_normal;
+    Formula sample_formula;
+
+    // s_puzzles = id,puzzle_type,solution_state,scramble_state
+    // s_sample = id,formula
+    // puzzle_type = "cube_2/2/2", "cube_3/3/3", ... "cube_33/33/33"
+    stringstream ss_puzzles(s_puzzles);
+    stringstream ss_sample(s_sample);
+    string token;
+    getline(ss_puzzles, token, ',');
+    assert(stoi(token) == id);
+    if (stoi(token) != id) {
+        cerr << "id mismatch" << endl;
+        exit(1);
+    }
+    getline(ss_puzzles, puzzle_type, ',');
+    stringstream ss_puzzle_type(puzzle_type);
+    getline(ss_puzzle_type, token, '/');
+    getline(ss_puzzle_type, token, '/');
+    puzzle_size = stoi(token);
+    getline(ss_puzzles, solution_state, '/');
+    {
+        is_normal = true;
+        cerr << solution_state << endl;
+        if (solution_state[0] == 'N')
+            is_normal = false;
+        if (solution_state[2] == 'B' && puzzle_size % 2 == 0)
+            is_normal = false;
+    }
+    getline(ss_sample, token, ',');
+    getline(ss_sample, token, ',');
+    sample_formula = Formula(token);
+
+    cout << "puzzle_type: " << puzzle_type << endl;
+    cout << "puzzle_size: " << puzzle_size << endl;
+    cout << "is_normal: " << is_normal << endl;
+    // sample_formula.Print(cerr);
+
+    return {puzzle_size, is_normal, sample_formula};
+}
 
 using Action = Formula;
 
