@@ -358,20 +358,39 @@ template <int order_, typename ColorType_ = ColorType48> struct EdgeCube {
                         faces[face_id].facelets[edge_id][x].data / 2 !=
                         faces[face_id].facelets[edge_id][(order - 3) / 2].data /
                             2;
-        return score;
-    }
-
-    inline auto ComputeEdgeDiff(const EdgeCube& rhs) const {
-        // ColorType48 であれば半分見れば良さそうではある
-        // TODO: 差分計算
-        auto diff = 0;
-        for (auto face_id = 0; face_id < 6; face_id++)
-            for (auto edge_id = 0; edge_id < 4; edge_id++)
-                for (auto x = 0; x < order - 2; x++)
-                    diff += faces[face_id].facelets[edge_id][x] !=
-                            rhs.faces[face_id].facelets[edge_id][x];
-        assert(diff % 2 == 0);
-        return diff;
+        auto parity_score = 0;
+        static auto debug_first_time = true;
+        if (debug_first_time) {
+            cout << "parity: ";
+        }
+        for (auto x = 0; x < (order - 2) / 2; x++) {
+            auto positions = array<int, 48>();
+            for (auto face_id = 0; face_id < 6; face_id++)
+                for (auto edge_id = 0; edge_id < 4; edge_id++) {
+                    positions[face_id * 8 + edge_id * 2] =
+                        faces[face_id].facelets[edge_id][x].data;
+                    positions[face_id * 8 + edge_id * 2 + 1] =
+                        faces[face_id].facelets[edge_id][order - 3 - x].data;
+                }
+            auto n_swapped = 0;
+            for (auto i = 0; i < 48; i++) {
+                auto p = positions[i];
+                while (i != p) {
+                    std::swap(positions[i], positions[p]);
+                    n_swapped++;
+                    p = positions[i];
+                }
+            }
+            assert(n_swapped % 2 == 0);
+            parity_score += (n_swapped / 2) % 2;
+            if (debug_first_time) {
+                cout << (n_swapped / 2) % 2;
+            }
+        }
+        if (debug_first_time)
+            cout << endl;
+        debug_first_time = false;
+        return score + parity_score * 100;
     }
 
     // 異なる面の隣接するマスを取得する
