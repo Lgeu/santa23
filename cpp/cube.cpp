@@ -844,10 +844,6 @@ template <int order_, typename ColorType_ = ColorType6> struct Cube {
     }
 
     inline void RotateOrientation(const Move& mov) {
-#define FROM_BOTTOM order - 1 - mov.depth, i
-#define FROM_LEFT i, mov.depth
-#define FROM_TOP mov.depth, order - 1 - i
-#define FROM_RIGHT order - 1 - i, order - 1 - mov.depth
         switch (mov.direction) {
         case Move::Direction::F:
             if (mov.depth == 0)
@@ -886,10 +882,6 @@ template <int order_, typename ColorType_ = ColorType6> struct Cube {
                 faces[R1].RotateCW(1);
             break;
         }
-#undef FROM_BOTTOM
-#undef FROM_LEFT
-#undef FROM_TOP
-#undef FROM_RIGHT
     }
 
     inline void Rotate(const Formula& formula) {
@@ -1179,110 +1171,6 @@ tuple<int, bool, Formula> ReadKaggleInput(const string& filename_puzzles,
     return {puzzle_size, is_normal, sample_formula};
 }
 
-using Action = Formula;
-
-template <int order, typename ColorType = ColorType6> struct State {
-    using Cube = ::Cube<order, ColorType>;
-    Cube cube;
-    int score;   // target との距離
-    int n_moves; // これまでに回した回数
-
-    inline State(const Cube& cube, const Cube& target_cube)
-        : cube(cube), score(cube.ComputeFaceDiff(target_cube)), n_moves() {}
-
-    inline auto ComputeNextActionCandidates(const Cube& /*target_cube*/) const {
-        auto action_candidates = vector<Action>();
-        for (auto d = (i8)0; d < 6; d++) {
-            const auto direction = (Move::Direction)d;
-            for (auto depth = (i8)0; depth < order; depth++)
-                action_candidates.push_back(vector<Move>{{direction, depth}});
-        }
-
-        // TODO: L'(n-j) U L'(i) U' L(n-j) U L(i)
-        // 回転で頭壊れた
-
-        return action_candidates;
-    }
-
-    inline void Apply(const Action& action, const Cube& target_cube) {
-        cube.Rotate(action);
-        score = cube.ComputeFaceDiff(target_cube);
-        n_moves += action.Cost();
-    }
-};
-
-template <int order, typename ColorType = ColorType6> struct Node {
-    using State = ::State<order, ColorType>;
-    State state;
-    shared_ptr<Node> parent;
-    Action last_action;
-    inline Node(const State& state, const shared_ptr<Node>& parent,
-                const Action& last_action)
-        : state(state), parent(parent), last_action(last_action) {}
-};
-
-template <int order, typename ColorType = ColorType6> struct BeamSearchSolver {
-    using Node = ::Node<order, ColorType>;
-    using State = ::State<order, ColorType>;
-    using Cube = ::Cube<order, ColorType>;
-    vector<vector<shared_ptr<Node>>> nodes;
-
-    inline shared_ptr<Node> Solve(const State& initial_state,
-                                  const Cube& target_cube) {
-        const auto beam_width = 256;
-        auto rng = RandomNumberGenerator(42);
-
-        nodes.resize(1);
-        nodes[0].push_back(
-            make_shared<Node>(initial_state, nullptr, Action({Move{}})));
-        for (auto current_cost = 0; current_cost < 100000; current_cost++) {
-            for (const auto& node : nodes[current_cost]) {
-                if (node->state.score == 0) {
-                    cerr << "Solved!" << endl;
-                    return node;
-                }
-                for (const auto& action :
-                     node->state.ComputeNextActionCandidates(target_cube)) {
-                    auto new_state = node->state;
-                    new_state.Apply(action, target_cube);
-                    if (new_state.n_moves >= (int)nodes.size())
-                        nodes.resize(new_state.n_moves + 1);
-                    if ((int)nodes[new_state.n_moves].size() < beam_width) {
-                        nodes[new_state.n_moves].emplace_back(
-                            new Node(new_state, node, action));
-                    } else {
-                        const auto idx = rng.Next() % beam_width;
-                        if (new_state.score <
-                            nodes[new_state.n_moves][idx]->state.score)
-                            nodes[new_state.n_moves][idx].reset(
-                                new Node(new_state, node, action));
-                    }
-                }
-            }
-            nodes[current_cost].clear();
-        }
-        cerr << "Failed." << endl;
-        return nullptr;
-    }
-};
-
-[[maybe_unused]] static void TestBeamSearch() {
-    constexpr auto kOrder = 7;
-    using Solver = BeamSearchSolver<kOrder, ColorType6>;
-    using Cube = typename Solver::Cube;
-    using State = typename Solver::State;
-
-    auto solver = Solver();
-    auto initial_cube = Cube();
-    auto target_cube = Cube();
-    const auto initial_state = State(initial_cube, target_cube);
-
-    // ここで target_cube 渡すの、設計失敗してそう
-    solver.Solve(initial_state, target_cube);
-
-    // TODO: 結果を表示する
-}
-
 [[maybe_unused]] static void TestCube() {
     // 適当に動かす
     // constexpr auto kOrder = 4;
@@ -1335,12 +1223,3 @@ template <int order, typename ColorType = ColorType6> struct BeamSearchSolver {
 #ifdef TEST_CUBE
 int main() { TestCube(); }
 #endif
-
-/*
-メモ
-* ハッシュ関数実装しかけたけど、重そうだし、
-  実は重複除去しなくても割と大丈夫なんじゃないかという気がしたので一旦やめた
-* RCube を真似して面の回転を実装したけど、
-  order=8 くらいだと愚直の方が良かったりしそう
-* ビームサーチではない
-*/
