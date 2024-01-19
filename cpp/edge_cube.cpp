@@ -30,6 +30,13 @@ struct ColorType48 {
             os << "\e[0m";
     }
 
+    inline void PrintSingmaster(ostream& os) const {
+        if (data < 0)
+            os << ' ';
+        else
+            os << "UFRBLD"[data / 8];
+    }
+
     template <Cubeish CubeType>
     inline FaceletPosition ComputeOriginalFaceletPosition(const int y,
                                                           const int x) const {
@@ -916,6 +923,26 @@ static void SolveWithOrder(const int problem_id, const bool is_normal,
     ifs.close();
     const auto face_solution = Formula(face_solution_string);
 
+    // キューブを表示するラムダ式
+    const auto display_cube = [&sample_formula, &face_solution, &is_normal](
+                                  const Formula& solution = Formula()) {
+        if (is_normal) {
+            auto cube = Cube<order, ColorType6>();
+            cube.Reset();
+            cube.RotateInv(sample_formula);
+            cube.Rotate(face_solution);
+            cube.Rotate(solution);
+            cube.Display();
+        } else {
+            auto cube = Cube<order, ColorType24>();
+            cube.Reset();
+            cube.RotateInv(sample_formula);
+            cube.Rotate(face_solution);
+            cube.Rotate(solution);
+            cube.Display();
+        }
+    };
+
     // 初期値の設定など
     const auto initial_cube = [&sample_formula, &face_solution] {
         auto initial_cube = Cube<order, ColorType6>();
@@ -924,17 +951,7 @@ static void SolveWithOrder(const int problem_id, const bool is_normal,
         initial_cube.Rotate(face_solution);
         return initial_cube;
     }();
-    if (is_normal) {
-        initial_cube.Display();
-        cout << endl;
-    } else {
-        auto cube = Cube<order, ColorType24>();
-        cube.Reset();
-        cube.RotateInv(sample_formula);
-        cube.Rotate(face_solution);
-        cube.Display();
-        cout << endl;
-    }
+    display_cube(); // 初期状態を描画する
     const auto initial_edge_cube = [&initial_cube] {
         auto initial_edge_cube = EdgeCube<order>();
         initial_edge_cube.FromCube(initial_cube);
@@ -977,21 +994,7 @@ static void SolveWithOrder(const int problem_id, const bool is_normal,
     const auto solution = Formula(result_moves);
     solution.Print();
     cout << endl;
-    if (is_normal) {
-        auto cube = Cube<order, ColorType6>();
-        cube.Reset();
-        cube.RotateInv(sample_formula);
-        cube.Rotate(face_solution);
-        cube.Rotate(solution);
-        cube.Display();
-    } else {
-        auto cube = Cube<order, ColorType24>();
-        cube.Reset();
-        cube.RotateInv(sample_formula);
-        cube.Rotate(face_solution);
-        cube.Rotate(solution);
-        cube.Display();
-    }
+    display_cube(solution);
 
     // 結果を保存する
     const auto all_solutions_file =
@@ -1023,10 +1026,20 @@ static void SolveWithOrder(const int problem_id, const bool is_normal,
     if (solution.Cost() < best_score) {
         auto ofs_best = ofstream(best_solution_file);
         if (ofs_best.good()) {
+            // 面の解とスコアを書き込む
             face_solution.Print(ofs_best);
             ofs_best << endl << face_solution.Cost() << endl;
+            // 辺の解とスコアを書き込む
             solution.Print(ofs_best);
             ofs_best << endl << solution.Cost() << endl;
+            // 3x3x3 に帰着したキューブの状態を書き込む
+            auto cube = Cube<order, ColorType6>();
+            cube.Reset();
+            cube.RotateInv(sample_formula);
+            cube.Rotate(face_solution);
+            cube.Rotate(solution);
+            cube.PrintSingmaster(ofs_best);
+            ofs_best << endl;
             ofs_best.close();
         } else
             cerr << format("Cannot open file `{}`.", best_solution_file)

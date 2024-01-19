@@ -88,6 +88,13 @@ struct ColorType6 {
             os << "\e[0m";
     }
 
+    inline void PrintSingmaster(ostream& os) const {
+        if (data < 0)
+            os << ' ';
+        else
+            os << "UFRBLD"[data];
+    }
+
     friend auto& operator<<(ostream& os, const ColorType6 t) {
         t.Print(os);
         return os;
@@ -110,6 +117,13 @@ struct ColorType24 {
         os << kColors[data / 4];
         Print(os);
         os << "\e[0m";
+    }
+
+    inline void PrintSingmaster(ostream& os) const {
+        if (data < 0)
+            os << ' ';
+        else
+            os << "UFRBLD"[data / 4];
     }
 
     friend auto& operator<<(ostream& os, const ColorType24 t) {
@@ -1096,6 +1110,113 @@ template <int order_, typename ColorType_ = ColorType6> struct Cube {
                 faces[D0].Get(y, x).Display(os);
             os << '\n';
         }
+    }
+
+    inline void PrintSingmaster(ostream& os = cout) const {
+        // 既に辺まで揃っていることを仮定
+#define TOP_ONE 0, 1
+#define RIGHT_ONE 1, order - 1
+#define BOTTOM_ONE order - 1, 1
+#define LEFT_ONE 1, 0
+        // UF
+        faces[D1].Get(BOTTOM_ONE).PrintSingmaster(os);
+        faces[F0].Get(TOP_ONE).PrintSingmaster(os);
+        os << ' ';
+        // UR
+        faces[D1].Get(RIGHT_ONE).PrintSingmaster(os);
+        faces[R0].Get(TOP_ONE).PrintSingmaster(os);
+        os << ' ';
+        // UB
+        faces[D1].Get(TOP_ONE).PrintSingmaster(os);
+        faces[F1].Get(TOP_ONE).PrintSingmaster(os);
+        os << ' ';
+        // UL
+        faces[D1].Get(LEFT_ONE).PrintSingmaster(os);
+        faces[R1].Get(TOP_ONE).PrintSingmaster(os);
+        os << ' ';
+        // DF
+        faces[D0].Get(TOP_ONE).PrintSingmaster(os);
+        faces[F0].Get(BOTTOM_ONE).PrintSingmaster(os);
+        os << ' ';
+        // DR
+        faces[D0].Get(RIGHT_ONE).PrintSingmaster(os);
+        faces[R0].Get(BOTTOM_ONE).PrintSingmaster(os);
+        os << ' ';
+        // DB
+        faces[D0].Get(BOTTOM_ONE).PrintSingmaster(os);
+        faces[F1].Get(BOTTOM_ONE).PrintSingmaster(os);
+        os << ' ';
+        // DL
+        faces[D0].Get(LEFT_ONE).PrintSingmaster(os);
+        faces[R1].Get(BOTTOM_ONE).PrintSingmaster(os);
+        os << ' ';
+        // FR
+        faces[F0].Get(RIGHT_ONE).PrintSingmaster(os);
+        faces[R0].Get(LEFT_ONE).PrintSingmaster(os);
+        os << ' ';
+        // FL
+        faces[F0].Get(LEFT_ONE).PrintSingmaster(os);
+        faces[R1].Get(RIGHT_ONE).PrintSingmaster(os);
+        os << ' ';
+        // BR
+        faces[F1].Get(LEFT_ONE).PrintSingmaster(os);
+        faces[R0].Get(RIGHT_ONE).PrintSingmaster(os);
+        os << ' ';
+        // BL
+        faces[F1].Get(RIGHT_ONE).PrintSingmaster(os);
+        faces[R1].Get(LEFT_ONE).PrintSingmaster(os);
+        os << ' ';
+#undef TOP_ONE
+#undef RIGHT_ONE
+#undef BOTTOM_ONE
+#undef LEFT_ONE
+#define TOP_LEFT 0, 0
+#define TOP_RIGHT 0, order - 1
+#define BOTTOM_LEFT order - 1, 0
+#define BOTTOM_RIGHT order - 1, order - 1
+        // UFR
+        faces[D1].Get(BOTTOM_RIGHT).PrintSingmaster(os);
+        faces[F0].Get(TOP_RIGHT).PrintSingmaster(os);
+        faces[R0].Get(TOP_LEFT).PrintSingmaster(os);
+        os << ' ';
+        // URB
+        faces[D1].Get(TOP_RIGHT).PrintSingmaster(os);
+        faces[R0].Get(TOP_RIGHT).PrintSingmaster(os);
+        faces[F1].Get(TOP_LEFT).PrintSingmaster(os);
+        os << ' ';
+        // UBL
+        faces[D1].Get(TOP_LEFT).PrintSingmaster(os);
+        faces[F1].Get(TOP_RIGHT).PrintSingmaster(os);
+        faces[R1].Get(TOP_LEFT).PrintSingmaster(os);
+        os << ' ';
+        // ULF
+        faces[D1].Get(BOTTOM_LEFT).PrintSingmaster(os);
+        faces[R1].Get(TOP_RIGHT).PrintSingmaster(os);
+        faces[F0].Get(TOP_LEFT).PrintSingmaster(os);
+        os << ' ';
+        // DRF
+        faces[D0].Get(TOP_RIGHT).PrintSingmaster(os);
+        faces[R0].Get(BOTTOM_LEFT).PrintSingmaster(os);
+        faces[F0].Get(BOTTOM_RIGHT).PrintSingmaster(os);
+        os << ' ';
+        // DFL
+        faces[D0].Get(TOP_LEFT).PrintSingmaster(os);
+        faces[F0].Get(BOTTOM_LEFT).PrintSingmaster(os);
+        faces[R1].Get(BOTTOM_RIGHT).PrintSingmaster(os);
+        os << ' ';
+        // DLB
+        faces[D0].Get(BOTTOM_LEFT).PrintSingmaster(os);
+        faces[R1].Get(BOTTOM_LEFT).PrintSingmaster(os);
+        faces[F1].Get(BOTTOM_RIGHT).PrintSingmaster(os);
+        os << ' ';
+        // DBR
+        faces[D0].Get(BOTTOM_RIGHT).PrintSingmaster(os);
+        faces[F1].Get(BOTTOM_LEFT).PrintSingmaster(os);
+        faces[R0].Get(BOTTOM_RIGHT).PrintSingmaster(os);
+#undef TOP_LEFT
+#undef TOP_RIGHT
+#undef BOTTOM_LEFT
+#undef BOTTOM_RIGHT
     }
 };
 
