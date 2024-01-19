@@ -611,7 +611,7 @@ template <int order> struct EdgeActionCandidateGenerator {
 
     // ファイルから手筋を読み取る
     // ファイルには f1.d0.-r0.-f1 みたいなのが 1 行に 1 つ書かれている想定
-    inline void FromFile(const string& filename) {
+    inline void FromFile(const string& filename, const bool is_normal) {
         actions.clear();
 
         // 面の回転 1 つだけからなる手筋を別途加える
@@ -633,7 +633,9 @@ template <int order> struct EdgeActionCandidateGenerator {
         while (getline(ifs, line)) {
             if (line.empty() || line[0] == '#')
                 continue;
-            actions.emplace_back(line);
+            if (!is_normal && line[0] == '0')
+                continue;
+            actions.emplace_back(line.substr(2));
             actions.back().EnableFaceletChanges<EdgeCube>();
         }
 
@@ -665,11 +667,11 @@ template <int order> struct EdgeBeamSearchSolver {
     vector<vector<shared_ptr<EdgeNode>>> nodes;
 
     inline EdgeBeamSearchSolver(const EdgeCube& target_cube,
-                                const int beam_width,
+                                const bool is_normal, const int beam_width,
                                 const string& formula_file)
         : target_cube(target_cube), action_candidate_generator(),
           beam_width(beam_width), nodes() {
-        action_candidate_generator.FromFile(formula_file);
+        action_candidate_generator.FromFile(formula_file, is_normal);
     }
 
     inline shared_ptr<EdgeNode> Solve(const EdgeCube& start_cube) {
@@ -786,7 +788,7 @@ template <int order> struct EdgeBeamSearchSolver {
     using EdgeCube = typename EdgeActionCandidateGenerator::EdgeCube;
 
     auto action_candidate_generator = EdgeActionCandidateGenerator();
-    action_candidate_generator.FromFile(formula_file);
+    action_candidate_generator.FromFile(formula_file, true);
 
     for (auto i : {0, 1, 2, 12, 13}) {
         const auto action = action_candidate_generator.actions[i];
@@ -829,7 +831,7 @@ template <int order> struct EdgeBeamSearchSolver {
     auto target_cube = EdgeCube();
     target_cube.Reset();
 
-    auto solver = Solver(target_cube, beam_width, formula_file);
+    auto solver = Solver(target_cube, true, beam_width, formula_file);
 
     const auto node = solver.Solve(initial_cube);
     if (node != nullptr) {
@@ -850,8 +852,8 @@ template <int order> struct EdgeBeamSearchSolver {
 template <int order>
 static void SolveWithOrder(const int problem_id, const bool is_normal,
                            const Formula& sample_formula) {
-    constexpr auto beam_width = 4;
-    constexpr auto formula_depth = 7;
+    constexpr auto beam_width = 32;
+    constexpr auto formula_depth = 8;
     const auto formula_file =
         format("out/edge_formula_{}_{}.txt", order, formula_depth);
 
@@ -873,16 +875,25 @@ static void SolveWithOrder(const int problem_id, const bool is_normal,
     initial_cube.Reset();
     initial_cube.RotateInv(sample_formula);
     initial_cube.Rotate(face_solution);
+    if (is_normal) {
     initial_cube.Display();
     cout << endl;
+    } else {
+        auto cube = Cube<order, ColorType24>();
+        cube.Reset();
+        cube.RotateInv(sample_formula);
+        cube.Rotate(face_solution);
+        cube.Display();
+        cout << endl;
+    }
     auto initial_edge_cube = EdgeCube<order>();
     initial_edge_cube.FromCube(initial_cube);
     auto target_edge_cube = EdgeCube<order>();
     target_edge_cube.Reset();
 
     // 解く
-    auto solver =
-        EdgeBeamSearchSolver<order>(target_edge_cube, beam_width, formula_file);
+    auto solver = EdgeBeamSearchSolver<order>(target_edge_cube, is_normal,
+                                              beam_width, formula_file);
     const auto node = solver.Solve(initial_edge_cube);
     if (node == nullptr) // 失敗
         return;
