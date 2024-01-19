@@ -346,6 +346,84 @@ template <int order_, typename ColorType_ = ColorType48> struct EdgeCube {
                                                                         color);
     }
 
+    inline auto ComputeParities() const {
+        auto result = array<bool, (order - 2) / 2>();
+        for (auto i = 0; i < (order - 2) / 2; i++) {
+            auto positions = array<int, 48>();
+            for (auto face_id = 0; face_id < 6; face_id++)
+                for (auto edge_id = 0; edge_id < 4; edge_id++) {
+                    positions[face_id * 8 + edge_id * 2] =
+                        faces[face_id].facelets[edge_id][i].data;
+                    positions[face_id * 8 + edge_id * 2 + 1] =
+                        faces[face_id].facelets[edge_id][order - 3 - i].data;
+                }
+            auto n_swapped = 0;
+            for (auto i = 0; i < 48; i++) {
+                auto p = positions[i];
+                while (i != p) {
+                    std::swap(positions[i], positions[p]);
+                    n_swapped++;
+                    p = positions[i];
+                }
+            }
+            assert(n_swapped % 2 == 0);
+            result[i] = (n_swapped / 2) % 2;
+        }
+        return result;
+    }
+
+    inline auto ComputeParityResolvingFormula(
+        const array<bool, (order - 2) / 2>& parities) const {
+        static constexpr auto base_moves = {
+            Move{Move::Direction::R, 4},  // 3L'
+            Move{Move::Direction::Dp, 6}, // U2
+            Move{Move::Direction::Dp, 6}, //
+            Move{Move::Direction::R, 4},  // 3L'
+            Move{Move::Direction::Dp, 6}, // U2
+            Move{Move::Direction::Dp, 6}, //
+            Move{Move::Direction::F, 0},  // F2
+            Move{Move::Direction::F, 0},  //
+            Move{Move::Direction::R, 4},  // 3L'
+            Move{Move::Direction::F, 0},  // F2
+            Move{Move::Direction::F, 0},  //
+            Move{Move::Direction::R, 2},  // 3R
+            Move{Move::Direction::Dp, 6}, // U2
+            Move{Move::Direction::Dp, 6}, //
+            Move{Move::Direction::Rp, 2}, // 3R'
+            Move{Move::Direction::Dp, 6}, // U2
+            Move{Move::Direction::Dp, 6}, //
+            Move{Move::Direction::Rp, 4}, // 3L2
+            Move{Move::Direction::Rp, 4}, //
+        };
+        for (const auto& p : parities)
+            if (p)
+                goto not_all_zero;
+        return Formula();
+    not_all_zero:
+        auto moves = vector<Move>();
+        for (const auto mov : base_moves) {
+            switch (mov.depth) {
+            case 0:
+                moves.push_back(mov);
+                break;
+            case 6:
+                moves.push_back({mov.direction, (i8)(order - 1)});
+                break;
+            case 2:
+                for (auto i = 0; i < (order - 2) / 2; i++)
+                    if (parities[i])
+                        moves.push_back({mov.direction, (i8)(i + 1)});
+                break;
+            case 4:
+                for (auto i = 0; i < (order - 2) / 2; i++)
+                    if (parities[i])
+                        moves.push_back({mov.direction, (i8)(order - 2 - i)});
+                break;
+            }
+        }
+        return Formula(moves);
+    }
+
     // 各辺で中央のマスと一致していない数を数える
     inline auto ComputeEdgeScore() const {
         // あれ、1 面 4 色でよかったんじゃ……
@@ -358,39 +436,7 @@ template <int order_, typename ColorType_ = ColorType48> struct EdgeCube {
                         faces[face_id].facelets[edge_id][x].data / 2 !=
                         faces[face_id].facelets[edge_id][(order - 3) / 2].data /
                             2;
-        auto parity_score = 0;
-        static auto debug_first_time = true;
-        if (debug_first_time) {
-            cout << "parity: ";
-        }
-        for (auto x = 0; x < (order - 2) / 2; x++) {
-            auto positions = array<int, 48>();
-            for (auto face_id = 0; face_id < 6; face_id++)
-                for (auto edge_id = 0; edge_id < 4; edge_id++) {
-                    positions[face_id * 8 + edge_id * 2] =
-                        faces[face_id].facelets[edge_id][x].data;
-                    positions[face_id * 8 + edge_id * 2 + 1] =
-                        faces[face_id].facelets[edge_id][order - 3 - x].data;
-                }
-            auto n_swapped = 0;
-            for (auto i = 0; i < 48; i++) {
-                auto p = positions[i];
-                while (i != p) {
-                    std::swap(positions[i], positions[p]);
-                    n_swapped++;
-                    p = positions[i];
-                }
-            }
-            assert(n_swapped % 2 == 0);
-            parity_score += (n_swapped / 2) % 2;
-            if (debug_first_time) {
-                cout << (n_swapped / 2) % 2;
-            }
-        }
-        if (debug_first_time)
-            cout << endl;
-        debug_first_time = false;
-        return score + parity_score * 100;
+        return score;
     }
 
     // 異なる面の隣接するマスを取得する
@@ -871,13 +917,16 @@ static void SolveWithOrder(const int problem_id, const bool is_normal,
     const auto face_solution = Formula(face_solution_string);
 
     // 初期値の設定など
-    auto initial_cube = Cube<order, ColorType6>();
-    initial_cube.Reset();
-    initial_cube.RotateInv(sample_formula);
-    initial_cube.Rotate(face_solution);
+    const auto initial_cube = [&sample_formula, &face_solution] {
+        auto initial_cube = Cube<order, ColorType6>();
+        initial_cube.Reset();
+        initial_cube.RotateInv(sample_formula);
+        initial_cube.Rotate(face_solution);
+        return initial_cube;
+    }();
     if (is_normal) {
-    initial_cube.Display();
-    cout << endl;
+        initial_cube.Display();
+        cout << endl;
     } else {
         auto cube = Cube<order, ColorType24>();
         cube.Reset();
@@ -886,31 +935,55 @@ static void SolveWithOrder(const int problem_id, const bool is_normal,
         cube.Display();
         cout << endl;
     }
-    auto initial_edge_cube = EdgeCube<order>();
-    initial_edge_cube.FromCube(initial_cube);
+    const auto initial_edge_cube = [&initial_cube] {
+        auto initial_edge_cube = EdgeCube<order>();
+        initial_edge_cube.FromCube(initial_cube);
+        return initial_edge_cube;
+    }();
     auto target_edge_cube = EdgeCube<order>();
     target_edge_cube.Reset();
+
+    // パリティは予め解消しておく
+    auto parity_resolved_edge_cube = initial_edge_cube;
+    const auto parities = parity_resolved_edge_cube.ComputeParities();
+    const auto parity_resolving_formula =
+        parity_resolved_edge_cube.ComputeParityResolvingFormula(parities);
+    parity_resolved_edge_cube.Rotate(parity_resolving_formula);
+    auto result_moves = parity_resolving_formula.moves;
+    cout << "parity: ";
+    for (const auto p : parities)
+        cout << p;
+    cout << endl;
+    cout << "parity_resolving_formula: " << parity_resolving_formula.Cost()
+         << " ";
+    parity_resolving_formula.Print();
+    cout << endl;
+    parity_resolved_edge_cube.Display();
 
     // 解く
     auto solver = EdgeBeamSearchSolver<order>(target_edge_cube, is_normal,
                                               beam_width, formula_file);
-    const auto node = solver.Solve(initial_edge_cube);
+    const auto node = solver.Solve(parity_resolved_edge_cube);
     if (node == nullptr) // 失敗
         return;
 
     // 結果を表示する
     cout << node->state.n_moves << endl;
-    auto moves = vector<Move>();
     for (auto p = node; p->parent != nullptr; p = p->parent)
         for (auto i = (int)p->last_action.moves.size() - 1; i >= 0; i--)
-            moves.emplace_back(p->last_action.moves[i]);
-    reverse(moves.begin(), moves.end());
-    const auto solution = Formula(moves);
+            result_moves.emplace_back(p->last_action.moves[i]);
+    reverse(result_moves.begin() + parity_resolving_formula.Cost(),
+            result_moves.end());
+    const auto solution = Formula(result_moves);
     solution.Print();
     cout << endl;
     if (is_normal) {
-        initial_cube.Rotate(solution);
-        initial_cube.Display();
+        auto cube = Cube<order, ColorType6>();
+        cube.Reset();
+        cube.RotateInv(sample_formula);
+        cube.Rotate(face_solution);
+        cube.Rotate(solution);
+        cube.Display();
     } else {
         auto cube = Cube<order, ColorType24>();
         cube.Reset();

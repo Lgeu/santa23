@@ -1172,51 +1172,34 @@ tuple<int, bool, Formula> ReadKaggleInput(const string& filename_puzzles,
 }
 
 [[maybe_unused]] static void TestCube() {
-    // 適当に動かす
-    // constexpr auto kOrder = 4;
-    // const auto moves = {
-    //     Move{Move::Direction::D, (i8)1},
-    //     Move{Move::Direction::Fp, (i8)0},
-    //     Move{Move::Direction::R, (i8)3},
-    // };
-
-    // 謎手筋
-    // constexpr auto kOrder = 7;
-    // const auto moves = {
-    //     Move{Move::Direction::F, (i8)2},  //
-    //     Move{Move::Direction::R, (i8)0},  //
-    //     Move{Move::Direction::Fp, (i8)2}, //
-    //     Move{Move::Direction::D, (i8)6},  //
-    //     Move{Move::Direction::R, (i8)0},  //
-    //     Move{Move::Direction::Fp, (i8)4}, //
-    //     Move{Move::Direction::D, (i8)6},  //
-    //     Move{Move::Direction::F, (i8)4},  //
-    // };
-
-    // 辺の手筋
-    // constexpr auto kOrder = 5;
-    // const auto moves = {
-    //     Move{Move::Direction::F, (i8)1},  //
-    //     Move{Move::Direction::D, (i8)0},  //
-    //     Move{Move::Direction::F, (i8)0},  //
-    //     Move{Move::Direction::Dp, (i8)0}, //
-    //     Move{Move::Direction::Fp, (i8)1}, //
-    // };
-
-    // 辺の手筋 2
-    constexpr auto kOrder = 5;
+    // パリティ解消の辺の手筋
+    constexpr auto kOrder = 7;
     const auto moves = {
-        Move{Move::Direction::F, (i8)2},  //
-        Move{Move::Direction::D, (i8)0},  //
-        Move{Move::Direction::F, (i8)0},  //
-        Move{Move::Direction::D, (i8)0},  //
-        Move{Move::Direction::Fp, (i8)2}, //
+        Move{Move::Direction::R, 4},  // 3L'
+        Move{Move::Direction::Dp, 6}, // U2
+        Move{Move::Direction::Dp, 6}, //
+        Move{Move::Direction::R, 4},  // 3L'
+        Move{Move::Direction::Dp, 6}, // U2
+        Move{Move::Direction::Dp, 6}, //
+        Move{Move::Direction::F, 0},  // F2
+        Move{Move::Direction::F, 0},  //
+        Move{Move::Direction::R, 4},  // 3L'
+        Move{Move::Direction::F, 0},  // F2
+        Move{Move::Direction::F, 0},  //
+        Move{Move::Direction::R, 2},  // 3R
+        Move{Move::Direction::Dp, 6}, // U2
+        Move{Move::Direction::Dp, 6}, //
+        Move{Move::Direction::Rp, 2}, // 3R'
+        Move{Move::Direction::Dp, 6}, // U2
+        Move{Move::Direction::Dp, 6}, //
+        Move{Move::Direction::Rp, 4}, // 3L2
+        Move{Move::Direction::Rp, 4}, //
     };
 
     const auto formula = Formula(moves);
     formula.Print();
     cout << endl;
-    formula.Display<Cube<kOrder, ColorType6>>();
+    formula.Display<Cube<kOrder, ColorType24>>();
 }
 
 // clang++ -std=c++20 -Wall -Wextra -O3 cube.cpp -DTEST_CUBE
