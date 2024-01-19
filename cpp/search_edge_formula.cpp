@@ -42,23 +42,31 @@ template <int order> struct EdgeFormulaSearcher {
         }
     };
 
-    vector<Formula> results;
+    struct Result {
+        bool can_use_for_rainbow_cube;
+        Formula formula;
+    };
+
+    vector<Result> results;
     int depth;
     Cube cube;
-    array<Move, 8> move_history;
+    array<Move, 12> move_history;
     InnerRotationCounts inner_rotation_counts;
 
     // 有効な手筋かチェックする
-    bool CheckValid() const {
+    // 虹でも使えるなら 2
+    // 通常だけなら 1
+    // 使えないなら 0
+    auto CheckValid() const {
         // 手筋の長さは 4 以上
         if (depth < 4)
-            return false;
+            return 0;
         // 面以外の回転の戻し残しが無い
         if (inner_rotation_counts.distance_from_all_zero != 0)
-            return false;
+            return 0;
         // 最後が面の回転でない (次の項目の下位互換なので無くても良い)
         if (move_history[depth - 1].IsFaceRotation<Cube::order>())
-            return false;
+            return 0;
         // 面の回転の後には、別の軸の回転がある
         {
             auto last_face_roration_axis = (i8)-1;
@@ -71,25 +79,38 @@ template <int order> struct EdgeFormulaSearcher {
                     last_face_roration_axis = (i8)-1;
             }
             if (last_face_roration_axis != (i8)-1)
-                return false;
+                return 0;
         }
         // 面が揃っている
-        for (auto face_id = 0; face_id < 5; face_id++) {
-            const auto color =
-                cube.faces[face_id].GetIgnoringOrientation(1, 1).data / 4;
+        static const auto reference_cube = [] {
+            auto cube = Cube();
+            cube.Reset();
+            return cube;
+        }();
+        bool can_use_for_rainbow_cube = true;
+        for (auto face_id = 0; face_id < 6; face_id++) {
             for (auto y = 1; y < Cube::order - 1; y++) {
-                for (auto x = 1; x < Cube::order - 1; x++)
-                    if (cube.faces[face_id].GetIgnoringOrientation(y, x).data /
-                            4 !=
-                        color)
-                        return false;
+                for (auto x = 1; x < Cube::order - 1; x++) {
+                    const auto reference_color =
+                        reference_cube.faces[face_id]
+                            .GetIgnoringOrientation(y, x)
+                            .data;
+                    const auto color =
+                        cube.faces[face_id].GetIgnoringOrientation(y, x).data;
+                    if (reference_color != color) {
+                        can_use_for_rainbow_cube = false;
+                        if (reference_color / 4 != color / 4)
+                            return 0;
+                    }
+                }
             }
         }
-        return true;
+        return can_use_for_rainbow_cube ? 2 : 1;
     }
     void Dfs() {
         // 方針: ややこしすぎるので後で回転とか言わず全部列挙する
-        if (CheckValid()) {
+        const auto valid = CheckValid();
+        if (valid >= 1) {
             const auto moves = vector<Move>(move_history.begin(),
                                             move_history.begin() + depth);
             auto facelet_changes_array =
@@ -124,7 +145,7 @@ template <int order> struct EdgeFormulaSearcher {
                 const auto facelet_changes = vector<Formula::FaceletChange>(
                     facelet_changes_array.begin(),
                     facelet_changes_array.begin() + n_facelet_changes);
-                results.emplace_back(moves, facelet_changes);
+                results.push_back({valid == 2, {moves, facelet_changes}});
             }
         }
         if (depth == max_depth) {
@@ -237,7 +258,8 @@ static auto SearchEdgeFormulaWithOrder(const int max_depth) {
         abort();
     }
     os << "# Number of formulas: " << results.size() << endl;
-    for (const auto& formula : results) {
+    for (const auto& [can_use_for_rainbow_cube, formula] : results) {
+        os << can_use_for_rainbow_cube << " ";
         formula.Print(os);
         // os << "  " << formula.facelet_changes.size();
         if (0) {
