@@ -942,6 +942,7 @@ static void SolveWithOrder(const int problem_id, const bool is_normal,
             cube.Display();
         }
     };
+    display_cube(); // 初期状態を描画する
 
     // 初期値の設定など
     const auto initial_cube = [&sample_formula, &face_solution] {
@@ -951,7 +952,6 @@ static void SolveWithOrder(const int problem_id, const bool is_normal,
         initial_cube.Rotate(face_solution);
         return initial_cube;
     }();
-    display_cube(); // 初期状態を描画する
     const auto initial_edge_cube = [&initial_cube] {
         auto initial_edge_cube = EdgeCube<order>();
         initial_edge_cube.FromCube(initial_cube);
@@ -975,7 +975,7 @@ static void SolveWithOrder(const int problem_id, const bool is_normal,
          << " ";
     parity_resolving_formula.Print();
     cout << endl;
-    parity_resolved_edge_cube.Display();
+    display_cube(parity_resolving_formula);
 
     // 解く
     auto solver = EdgeBeamSearchSolver<order>(target_edge_cube, is_normal,
@@ -1003,10 +1003,14 @@ static void SolveWithOrder(const int problem_id, const bool is_normal,
         format("solution_edge/{}_best.txt", problem_id);
     auto ofs_all = ofstream(all_solutions_file, ios::app);
     if (ofs_all.good()) {
+        face_solution.Print(ofs_all);
+        ofs_all << endl;
         solution.Print(ofs_all);
         ofs_all << endl
-                << format("score={} beam_width={} formula_depth={}",
-                          solution.Cost(), beam_width, formula_depth)
+                << format("face_solution_score={} edge_solution_score={} "
+                          "beam_width={} formula_depth={}",
+                          face_solution.Cost(), solution.Cost(), beam_width,
+                          formula_depth)
                 << endl;
         ofs_all.close();
     } else {
@@ -1017,13 +1021,14 @@ static void SolveWithOrder(const int problem_id, const bool is_normal,
     if (ifs_best.good()) {
         string line;
         getline(ifs_best, line); // 面の解を読み飛ばす
-        getline(ifs_best, line); // 面のスコアを読み飛ばす
+        getline(ifs_best, line); // 面のスコアを読む
+        best_score = stoi(line);
         getline(ifs_best, line); // 辺の解を読み飛ばす
         getline(ifs_best, line); // 辺のスコアの行を読む
-        best_score = stoi(line);
+        best_score += stoi(line);
         ifs_best.close();
     }
-    if (solution.Cost() < best_score) {
+    if (face_solution.Cost() + solution.Cost() < best_score) {
         auto ofs_best = ofstream(best_solution_file);
         if (ofs_best.good()) {
             // 面の解とスコアを書き込む
