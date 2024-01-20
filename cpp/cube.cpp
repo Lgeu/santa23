@@ -481,23 +481,6 @@ struct Formula {
         }
     }
 
-    template <Cubeish CubeType> inline void EnableFaceletChangesAll() {
-        if (use_facelet_changes)
-            return;
-        use_facelet_changes = true;
-        facelet_changes.clear();
-        auto cube = CubeType();
-        cube.Reset();
-        for (const auto& mov : moves)
-            cube.Rotate(mov);
-
-        for (const FaceletPosition pos : CubeType::AllFaceletPositions()) {
-            const auto color = cube.Get(pos);
-            const auto original_pos =
-                CubeType::ComputeOriginalFaceletPosition(pos.y, pos.x, color);
-        }
-    }
-
     inline void DisableFaceletChanges() {
         use_facelet_changes = false;
         facelet_changes.clear();
