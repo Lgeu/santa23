@@ -11,3 +11,6 @@ tmp.*
 /cpp/solution_*/*
 !/cpp/solution_*/*_best.txt
 !/cpp/out/edge_formula_5_4.txt
+!/cpp/out/rainbow_formula_4.txt
+/rust/tools/*
+/rust/target/*
