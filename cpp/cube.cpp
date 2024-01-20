@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <array>
 #include <cassert>
 #include <format>
@@ -23,6 +24,7 @@ using std::make_shared;
 using std::ofstream;
 using std::ostream;
 using std::pair;
+using std::reverse;
 using std::same_as;
 using std::shared_ptr;
 using std::string;
@@ -364,6 +366,64 @@ struct Move {
     inline Axis GetAxis() const { return (Axis)((int)direction >> 1); }
 
     inline auto operator<=>(const Move&) const = default;
+
+    inline Move RotateXOnce(const int order = 4) const {
+        assert(depth == 0 || depth == order - 1);
+        switch (direction) {
+        case Direction::F:
+            return {Direction::D, depth};
+        case Direction::Fp:
+            return {Direction::Dp, depth};
+        case Direction::D:
+            return {Direction::Fp, i8(order - 1 - depth)};
+        case Direction::Dp:
+            return {Direction::F, i8(order - 1 - depth)};
+        case Direction::R:
+            return {Direction::R, depth};
+        case Direction::Rp:
+            return {Direction::Rp, depth};
+        default:
+            assert(false);
+            return {};
+        }
+    }
+
+    inline Move RotateYOnce(const int order = 4) const {
+        assert(depth == 0 || depth == order - 1);
+        switch (direction) {
+        case Direction::F:
+            return {Direction::R, depth};
+        case Direction::Fp:
+            return {Direction::Rp, depth};
+        case Direction::D:
+            return {Direction::D, depth};
+        case Direction::Dp:
+            return {Direction::Dp, depth};
+        case Direction::R:
+            return {Direction::Fp, i8(order - 1 - depth)};
+        case Direction::Rp:
+            return {Direction::F, i8(order - 1 - depth)};
+        default:
+            assert(false);
+            return {};
+        }
+    }
+
+    inline Move RotateX(const int order = 4, int num = 1) {
+        num = (num % 4 + 4) % 4;
+        Move mov = *this;
+        for (int i = 0; i < num; i++)
+            mov = mov.RotateXOnce(order);
+        return mov;
+    }
+
+    inline Move RotateY(const int order = 4, int num = 1) {
+        num = (num % 4 + 4) % 4;
+        Move mov = *this;
+        for (int i = 0; i < num; i++)
+            mov = mov.RotateYOnce(order);
+        return mov;
+    }
 };
 
 // マスの座標
@@ -650,6 +710,14 @@ struct Formula {
             cube.Rotate(moves[idx_moves]);
             cube.Display(os);
         }
+    }
+
+    inline Formula Inv() const {
+        Formula ret;
+        for (const auto& mov : moves)
+            ret.moves.emplace_back(mov.Inv());
+        reverse(ret.moves.begin(), ret.moves.end());
+        return ret;
     }
 };
 
