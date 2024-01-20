@@ -176,10 +176,12 @@ template <int order_, typename ColorType_ = ColorType48> struct EdgeCube {
     static_assert(is_same_v<ColorType, ColorType48>);
 
     array<EdgeFace<order, ColorType>, 6> faces;
+    bool corner_parity;
 
     inline void Reset() {
         for (auto face_id = 0; face_id < 6; face_id++)
             faces[face_id].Reset(ColorType{(i8)(face_id * 8)});
+        corner_parity = false;
     }
 
     inline void Rotate(const Move& mov) {
@@ -187,7 +189,10 @@ template <int order_, typename ColorType_ = ColorType48> struct EdgeCube {
 #define FROM_LEFT i, mov.depth
 #define FROM_TOP mov.depth, order - 1 - i
 #define FROM_RIGHT order - 1 - i, order - 1 - mov.depth
-        const auto is_face_rotation = mov.depth == 0 || mov.depth == order - 1;
+        const auto is_face_rotation = mov.IsFaceRotation<order>();
+        if constexpr (order % 2 == 0)
+            if (is_face_rotation)
+                corner_parity = !corner_parity;
         switch (mov.direction) {
         case Move::Direction::F:
             if (mov.depth == 0)
@@ -305,6 +310,10 @@ template <int order_, typename ColorType_ = ColorType48> struct EdgeCube {
                 new_colors[i] = Get(formula.facelet_changes[i].from);
             for (auto i = 0; i < (int)formula.facelet_changes.size(); i++)
                 Set(formula.facelet_changes[i].to, new_colors[i]);
+            if constexpr (order % 2 == 0)
+                for (const auto& mov : formula.moves)
+                    if (mov.IsFaceRotation<order>())
+                        corner_parity = !corner_parity;
         } else
             for (const auto& m : formula.moves)
                 Rotate(m);
@@ -431,6 +440,76 @@ template <int order_, typename ColorType_ = ColorType48> struct EdgeCube {
         return Formula(moves);
     }
 
+    inline auto ComputePLLParity() const
+        requires(order % 2 == 0)
+    {
+        static constexpr auto kCL = (order - 4) / 2;
+        static constexpr auto kCR = (order - 2) / 2;
+        static constexpr auto adjecent_edge_facelets =
+            array<array<array<i8, 2>, 2>, 12>{
+                array<array<i8, 2>, 2>{array<i8, 2>{D1, 0}, {F1, 0}},
+                {array<i8, 2>{D1, 1}, {R0, 0}},
+                {array<i8, 2>{D1, 2}, {F0, 0}},
+                {array<i8, 2>{D1, 3}, {R1, 0}},
+                {array<i8, 2>{D0, 0}, {F0, 2}},
+                {array<i8, 2>{D0, 1}, {R0, 2}},
+                {array<i8, 2>{D0, 2}, {F1, 2}},
+                {array<i8, 2>{D0, 3}, {R1, 2}},
+                {array<i8, 2>{F0, 1}, {R0, 3}},
+                {array<i8, 2>{F0, 3}, {R1, 1}},
+                {array<i8, 2>{F1, 1}, {R1, 3}},
+                {array<i8, 2>{F1, 3}, {R0, 1}},
+            };
+        static const auto color_to_edge_position = [] {
+            auto cube = EdgeCube();
+            cube.Reset();
+            auto result = array<int, 48>();
+            for (auto i = 0; i < 12; i++) {
+                const auto [facelet0, facelet1] = adjecent_edge_facelets[i];
+                const auto [edge_id_0, x_0] = facelet0;
+                const auto [edge_id_1, x_1] = facelet1;
+                const auto color0l =
+                    cube.faces[edge_id_0].facelets[x_0][kCL].data;
+                const auto color0r =
+                    cube.faces[edge_id_0].facelets[x_0][kCR].data;
+                const auto color1l =
+                    cube.faces[edge_id_1].facelets[x_1][kCL].data;
+                const auto color1r =
+                    cube.faces[edge_id_1].facelets[x_1][kCR].data;
+                result[color0l] = i;
+                result[color0r] = i;
+                result[color1l] = i;
+                result[color1r] = i;
+            }
+            return result;
+        }();
+        // 置換を計算する
+        array<int, 12> positions;
+        for (auto i = 0; i < 12; i++) {
+            const auto [facelet, _] = adjecent_edge_facelets[i];
+            const auto [edge_id, x] = facelet;
+            const auto color0 = faces[edge_id].facelets[x][kCL].data;
+            positions[i] = color_to_edge_position[color0];
+        }
+        // パリティ以前に、同じ色がある場合は true を返す
+        auto tmp_positions = positions;
+        sort(tmp_positions.begin(), tmp_positions.end());
+        for (auto i = 0; i < 12; i++)
+            if (tmp_positions[i] != i)
+                return true;
+        // パリティを計算する
+        auto parity = corner_parity;
+        for (auto i = 0; i < 12; i++) {
+            auto p = positions[i];
+            while (i != p) {
+                std::swap(positions[i], positions[p]);
+                parity = !parity;
+                p = positions[i];
+            }
+        }
+        return parity;
+    }
+
     // 各辺で中央のマスと一致していない数を数える
     inline auto ComputeEdgeScore() const {
         // あれ、1 面 4 色でよかったんじゃ……
@@ -443,6 +522,8 @@ template <int order_, typename ColorType_ = ColorType48> struct EdgeCube {
                         faces[face_id].facelets[edge_id][x].data / 2 !=
                         faces[face_id].facelets[edge_id][(order - 3) / 2].data /
                             2;
+        if constexpr (order % 2 == 0)
+            score += ComputePLLParity() * 100;
         return score;
     }
 
@@ -532,6 +613,8 @@ template <int order_, typename ColorType_ = ColorType48> struct EdgeCube {
                 }
     }
 
+    // 注: corner_parity は変更されない
+    // 面倒すぎる
     inline void FromCube(const Cube<order, ColorType6>& rhs) {
         static auto color6_and_position_to_color48 = [] {
             auto result = array<array<EdgeFace<order>, 6>, 6>{};
@@ -952,9 +1035,20 @@ static void SolveWithOrder(const int problem_id, const bool is_normal,
         initial_cube.Rotate(face_solution);
         return initial_cube;
     }();
-    const auto initial_edge_cube = [&initial_cube] {
+    const auto initial_edge_cube = [&initial_cube, &sample_formula,
+                                    &face_solution] {
         auto initial_edge_cube = EdgeCube<order>();
         initial_edge_cube.FromCube(initial_cube);
+        if (order % 2 == 0) {
+            for (const auto mov : sample_formula.moves)
+                if (mov.IsFaceRotation<order>())
+                    initial_edge_cube.corner_parity =
+                        !initial_edge_cube.corner_parity;
+            for (const auto mov : face_solution.moves)
+                if (mov.IsFaceRotation<order>())
+                    initial_edge_cube.corner_parity =
+                        !initial_edge_cube.corner_parity;
+        }
         return initial_edge_cube;
     }();
     auto target_edge_cube = EdgeCube<order>();
