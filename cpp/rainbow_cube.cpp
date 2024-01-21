@@ -362,6 +362,9 @@ static void SolveWithOrder(const int problem_id, const bool is_normal,
     const auto [order, is_normal, sample_formula] =
         ReadKaggleInput(filename_puzzles, filename_sample, problem_id);
     switch (order) {
+    case 4:
+        SolveWithOrder<4>(problem_id, is_normal, sample_formula);
+        break;
     case 5:
         SolveWithOrder<5>(problem_id, is_normal, sample_formula);
         break;
@@ -398,12 +401,7 @@ int main() { TestRainbowActionCandidateGenerator(); }
 #endif
 // clang-format on
 
-// clang++ -std=c++20 -Wall -Wextra -O3 edge_cube.cpp -DTEST_EDGE_BEAM_SEARCH
-// #ifdef TEST_EDGE_BEAM_SEARCH
-// int main() { TestEdgeBeamSearch(); }
-// #endif
-
-// clang++ -std=c++20 -Wall -Wextra -O3 edge_cube.cpp -DSOLVE
+// clang++ -std=c++20 -Wall -Wextra -O3 rainbow_cube.cpp -DSOLVE
 #ifdef SOLVE
 int main(const int argc, const char* const* const argv) {
     if (argc != 2) {
