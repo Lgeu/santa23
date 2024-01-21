@@ -1,0 +1,5 @@
+-r1.r2.r3.-f2.r2.d1.r1.d3.-f3.-r2.-d2.-f3.d3.-r1.f0.d2
+16
+f1.-r0.d3.r0.-d3.-f1.-d1.-r3.-f3.-d3.r3.f3.d1.-f1.d0.f1.-r3.d0.f2.-r3.-f2.d3.f1.-f2.-d3.-f0.d3.-f1.f2
+29
+LF LU LB BU RU LD DF RF RB DB UF DR LFU DRF BUR BRD DFL LUB BDL FRU

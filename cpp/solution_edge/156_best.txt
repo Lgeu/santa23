@@ -1,0 +1,5 @@
+-f2.r3.-f2.r1.-r3.f0.-f1.f2.-d0.r2.d0.-d2.-r0.-r0.d2.r0.-f2
+17
+f0.f3.-d3.f2.-d0.-f2.-r3.-f1.r0.f1.-d3.d0.-f2.d3.-f0.-f3.r3.-d3.-r3.f2.d2.d2.r0.-d3.-r0.d2.d2
+27
+BL RF BR DL LF UR DR LU DF DB UB FU URB LUB FRU RFD RDB LFU DFL BDL
