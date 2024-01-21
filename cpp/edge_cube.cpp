@@ -1152,6 +1152,9 @@ static void SolveWithOrder(const int problem_id, const bool is_normal,
     const auto [order, is_normal, sample_formula] =
         ReadKaggleInput(filename_puzzles, filename_sample, problem_id);
     switch (order) {
+    case 4:
+        SolveWithOrder<4>(problem_id, is_normal, sample_formula);
+        break;
     case 5:
         SolveWithOrder<5>(problem_id, is_normal, sample_formula);
         break;
