@@ -154,6 +154,7 @@ template <int width> struct UnitGlobe {
         facelets[depth][0] = tmp;
     }
     inline void Flip(const int depth) {
+        assert(depth >= 0 && depth < width);
         constexpr auto half_width = width / 2;
         for (int i = 0; i < half_width; i++) {
             auto x0 = depth + i;
@@ -291,14 +292,11 @@ template <int width> struct GlobeFormulaSearcher {
 
     // 注: 奇数長の手筋は虹で使えない
     inline auto CheckValid() const {
-        // 手筋の長さは 4 以上
-        if (depth < 4)
+        // 手筋の長さは 1 以上
+        if (depth == 0)
             return false;
         // Flip の戻し残しがない
         if (flip_depth != 0)
-            return false;
-        // Flip がある
-        if (n_total_flips < 2)
             return false;
         // 最初と最後が逆操作の関係でない
         // そのようなものは AugmentConjugate() で水増しする
@@ -324,7 +322,7 @@ template <int width> struct GlobeFormulaSearcher {
             flip_depth < kMaxFlipDepth && flip_depth < max_depth - depth - 1;
         const auto can_decrease =
             depth >= 2 && flip_depth >= 1 && flip_depth <= max_depth - depth;
-        for (auto i = 0; i < width / 2; i++) {
+        for (auto i = 0; i < width; i++) {
             // 最初の Flip は 0 で固定して、後で回す
             if (n_total_flips == 0 && i != 0)
                 break;
@@ -365,9 +363,8 @@ template <int width> struct GlobeFormulaSearcher {
                                    UnitMove(UnitMove::Direction::Rp, 0),
                                    UnitMove(UnitMove::Direction::Rp, 1)}) {
                 // 最初の回転は固定して、後で回す
-                if (depth == n_total_flips &&
-                    mov != UnitMove(UnitMove::Direction::R, 0))
-                    break;
+                if (depth == n_total_flips && mov.depth != 0)
+                    continue;
                 // 回転を即戻してはいけない
                 const auto inv_mov = mov.Inv();
                 if (depth != 0 && move_history[depth - 1] == inv_mov)
@@ -384,31 +381,34 @@ template <int width> struct GlobeFormulaSearcher {
     // また、変化の多すぎる手筋も削除する
     inline void RemoveDuplicates() {
         assert(unit_globe == UnitGlobe(width * 2));
-        sort(results.begin(), results.end(), [](const auto& a, const auto& b) {
-            if (a.unit_moves.size() != b.unit_moves.size())
-                return a.unit_moves.size() < b.unit_moves.size();
-            return a.unit_moves < b.unit_moves;
-        });
+        sort(results.begin(), results.end(),
+             [](const UnitFormula& a, const UnitFormula& b) {
+                 if (a.unit_moves.size() != b.unit_moves.size())
+                     return a.unit_moves.size() < b.unit_moves.size();
+                 return a.unit_moves < b.unit_moves;
+             });
 
         auto top = 0;
         auto found_permutations =
             unordered_set<UnitGlobe, typename UnitGlobe::Hash>();
-        for (auto i = 0; i < (int)results.size(); i++) {
+        for (auto idx_results = 0; idx_results < (int)results.size();
+             idx_results++) {
             // 実際に手筋を使って回転させる
             auto tmp_globe = unit_globe;
-            tmp_globe.Rotate(results[i]);
+            tmp_globe.Rotate(results[idx_results]);
             // 変化が無いか多すぎるなら削除する
             auto n_changes = 0;
             for (auto i = 0; i < width * 2; i++)
                 if (tmp_globe.facelets[i / width][i % width].data != i)
                     n_changes++;
             if (n_changes == 0 ||
-                n_changes * (int)results[i].unit_moves.size() > max_cost)
+                n_changes * (int)results[idx_results].unit_moves.size() >
+                    max_cost)
                 continue;
             // 重複があるなら削除する
             const auto [it, inserted] = found_permutations.insert(tmp_globe);
             if (inserted)
-                results[top++] = results[i];
+                results[top++] = results[idx_results];
         }
         results.resize(top);
     }
@@ -424,16 +424,13 @@ template <int width> struct GlobeFormulaSearcher {
             for (auto&& unit_move : formula.unit_moves)
                 switch (unit_move.direction) {
                 case UnitMove::Direction::F:
-                    assert(unit_move.depth >= 0 && unit_move.depth < width / 2);
-                    unit_move.depth = width / 2 - 1 - unit_move.depth;
+                    unit_move.depth = width - 1 - unit_move.depth;
                     break;
                 case UnitMove::Direction::R:
                     unit_move.direction = UnitMove::Direction::Rp;
                     break;
                 case UnitMove::Direction::Rp:
                     unit_move.direction = UnitMove::Direction::R;
-                    break;
-                default:
                     break;
                 }
             results.push_back(formula);
@@ -458,7 +455,7 @@ template <int width> struct GlobeFormulaSearcher {
                 auto formula = results[idx_results];
                 for (auto&& unit_move : formula.unit_moves)
                     if (unit_move.direction == UnitMove::Direction::F)
-                        unit_move.depth += i;
+                        unit_move.depth = (unit_move.depth + i) % width;
                 results.push_back(formula);
             }
         }
@@ -469,21 +466,20 @@ template <int width> struct GlobeFormulaSearcher {
         results.reserve(original_results_size * (width / 2 + 5));
         // Flip で挟む
         for (auto i = 0; i < width / 2; i++) {
+            const auto mov = UnitMove(UnitMove::Direction::F, i);
             for (auto idx_results = 0; idx_results < original_results_size;
                  idx_results++) {
                 auto formula = results[idx_results];
-                formula.unit_moves.insert(formula.unit_moves.begin(),
-                                          UnitMove(UnitMove::Direction::F, i));
-                formula.unit_moves.push_back(
-                    UnitMove(UnitMove::Direction::F, i));
+                formula.unit_moves.insert(formula.unit_moves.begin(), mov);
+                formula.unit_moves.push_back(mov);
                 results.push_back(formula);
             }
         }
         // Rotation で挟む
-        for (const auto& mov : {UnitMove(UnitMove::Direction::R, 0),
-                                UnitMove(UnitMove::Direction::R, 1),
-                                UnitMove(UnitMove::Direction::Rp, 0),
-                                UnitMove(UnitMove::Direction::Rp, 1)}) {
+        for (const auto mov : {UnitMove(UnitMove::Direction::R, 0),
+                               UnitMove(UnitMove::Direction::R, 1),
+                               UnitMove(UnitMove::Direction::Rp, 0),
+                               UnitMove(UnitMove::Direction::Rp, 1)}) {
             for (auto idx_results = 0; idx_results < original_results_size;
                  idx_results++) {
                 auto formula = results[idx_results];
@@ -503,6 +499,7 @@ template <int width> struct GlobeFormulaSearcher {
         UnitMove(UnitMove::Direction::Rp, 1),
         UnitMove(UnitMove::Direction::F, 0),
         UnitMove(UnitMove::Direction::F, 1),
+        UnitMove(UnitMove::Direction::F, 7),
     };
     auto unit_globe = UnitGlobe<8>(8);
     for (const auto unit_move : unit_moves) {
