@@ -168,6 +168,8 @@ struct UnitFormula {
         }
     }
 
+    inline auto operator<=>(const UnitFormula&) const = default;
+
     inline void Print(ostream& os = cout) const {
         for (auto i = 0; i < (int)unit_moves.size(); i++) {
             unit_moves[i].Print(os);
@@ -247,8 +249,8 @@ template <int width> struct UnitGlobe {
     inline UnitGlobe() = default;
     inline UnitGlobe(const int n_colors) {
         assert(width * 2 % n_colors == 0);
-        const int n = width * 2 / n_colors;
-        for (int i = 0; i < width * 2; i++)
+        const auto n = width * 2 / n_colors;
+        for (auto i = 0; i < width * 2; i++)
             facelets[i / width][i % width] = Color((u8)(i / n));
     }
     inline void Rotate(const UnitMove& mov) {
@@ -266,17 +268,33 @@ template <int width> struct UnitGlobe {
     }
     inline void Rotate(const FaceletChanges& facelet_changes) {
         static_assert(sizeof(char) == sizeof(Color));
-        array<char, width * 2> tmp;
+        // array<char, width * 2> tmp;
+        // for (auto i = 0; i < (int)facelet_changes.changes.size(); i++)
+        //     tmp[i] = ((char*)&facelets)[facelet_changes.changes[i].from];
+        // for (auto i = 0; i < (int)facelet_changes.changes.size(); i++)
+        //     ((char*)&facelets)[facelet_changes.changes[i].to] = tmp[i];
+
+        // これがあるとまた結果が変わる
+        // cout << format("width={}, size={}", width,
+        //                facelet_changes.changes.size())
+        //      << endl;
+
+        array<Color, width * 2> tmp;
+        assert(facelet_changes.changes.size() <= tmp.size());
         for (auto i = 0; i < (int)facelet_changes.changes.size(); i++)
-            tmp[i] = ((char*)&facelets)[facelet_changes.changes[i].from];
+            tmp[i] = facelets[facelet_changes.changes[i].from / width]
+                             [facelet_changes.changes[i].from % width];
         for (auto i = 0; i < (int)facelet_changes.changes.size(); i++)
-            ((char*)&facelets)[facelet_changes.changes[i].to] = tmp[i];
+            facelets[facelet_changes.changes[i].to / width]
+                    [facelet_changes.changes[i].to % width] = tmp[i];
     }
     inline void RotateRight(const int depth) {
         assert(depth == 0 || depth == 1);
         const auto tmp = facelets[depth][0];
-        memmove(&facelets[depth][0], &facelets[depth][1],
-                sizeof(Color) * (width - 1));
+        for (auto i = 0; i < width - 1; i++)
+            facelets[depth][i] = facelets[depth][i + 1];
+        // memmove(&facelets[depth][0], &facelets[depth][1],
+        //         sizeof(Color) * (width - 1));
         facelets[depth][width - 1] = tmp;
     }
     inline void RotateLeft(const int depth) {
@@ -323,8 +341,13 @@ template <int width> struct UnitGlobe {
         }
         return parity;
     }
-    static inline auto ComputeFaceletChanges(const UnitFormula& formula) {
-        auto unit_globe = UnitGlobe(width * 2);
+    static auto ComputeFaceletChanges(const UnitFormula& formula) {
+        auto unit_globe = UnitGlobe<width>(width * 2);
+        if (formula == UnitFormula({UnitMove(UnitMove::Direction::R, 0)})) {
+            cout << "ccc" << endl;
+            unit_globe.Display();
+            cout << width << endl;
+        }
         unit_globe.Rotate(formula);
         auto facelet_changes = FaceletChanges();
         for (auto i = 0; i < width * 2; i++)
@@ -357,6 +380,7 @@ template <int width> struct UnitGlobe {
     }
 };
 
+// 赤道は扱わない
 template <int height, int width> struct Globe {
     array<UnitGlobe<width>, height / 2> units;
     inline Globe(const int n_colors) {
@@ -370,6 +394,10 @@ template <int height, int width> struct Globe {
                 unit.Flip(mov.unit_move.depth);
         } else {
             assert(mov.unit_move.direction != UnitMove::Direction::F);
+            if constexpr (height % 2 == 1)
+                if (mov.unit_id == height / 2)
+                    return;
+            // cout << (int)mov.unit_id << endl;
             units[mov.unit_id].Rotate(mov.unit_move);
         }
     }
@@ -703,7 +731,8 @@ template <int width> struct ActionCandidateGenerator {
     // ファイルから手筋を読み取る
     // ファイルには f1.r1.-r0.f1 みたいなのが 1 行に 1 つ書かれている想定
     inline ActionCandidateGenerator(const string& filename,
-                                    const bool is_normal) {
+                                    const bool is_normal)
+        : actions() {
         auto ifs = ifstream(filename);
         if (!ifs.good()) {
             cout << "Failed to open " << filename << endl;
@@ -721,11 +750,25 @@ template <int width> struct ActionCandidateGenerator {
             actions.emplace_back(formula);
         }
 
-        Test();
+        cout << "ddd" << endl;
+        cout << actions[0].facelet_changes.changes.size() << endl;
+        for (auto [f, t] : actions[0].facelet_changes.changes)
+            cout << (int)f << " " << (int)t << endl;
+
+        cout << "bbb" << endl;
+        // const auto action = Action(UnitFormula("r0"));
+        const auto fc = UnitGlobe::ComputeFaceletChanges(
+            UnitFormula({UnitMove(UnitMove::Direction::R, 0)}));
+
+        cout << fc.changes.size() << endl;
+        for (auto [f, t] : fc.changes)
+            cout << (int)f << " " << (int)t << endl;
+
+        SanityCheck();
     }
 
-    inline void Test() const {
-        for (auto i = 0; i < 3; i++) {
+    inline void SanityCheck() const {
+        for (auto i = 0; i < (int)actions.size(); i++) {
             const auto action = actions[i];
             auto cube0 = UnitGlobe(width * 2);
             cube0.Rotate(action.formula);
@@ -767,6 +810,18 @@ template <int width> struct Node {
         if (parent != nullptr) {
             auto globe = parent->state.unit_globe;
             globe.Rotate(last_action.formula);
+            if (globe != state.unit_globe) {
+                parent->state.unit_globe.Display();
+                last_action.formula.Print();
+                cout << endl;
+                globe.Display();
+                state.unit_globe.Display();
+
+                auto globe2 = parent->state.unit_globe;
+                cout << last_action.formula.unit_moves.size() << endl;
+                globe2.Rotate(last_action.facelet_changes);
+                globe2.Display();
+            }
             assert(globe == state.unit_globe);
         }
     }
@@ -787,7 +842,9 @@ template <int width> struct BeamSearchSolver {
                             const string& formula_filename,
                             const bool is_normal)
         : n_colors(n_colors), beam_width(beam_width),
-          action_candidate_generator(formula_filename, is_normal), nodes() {}
+          action_candidate_generator(formula_filename, is_normal), nodes() {
+        cout << formula_filename << endl;
+    }
 
     inline shared_ptr<Node> Solve(const UnitGlobe& initial_unit_globe) {
         auto rng = RandomNumberGenerator(42);
@@ -798,17 +855,30 @@ template <int width> struct BeamSearchSolver {
         nodes.push_back({initial_node});
 
         auto minimum_scores = array<int, 32>();
+
+        cout << "aaa" << endl;
+        cout << action_candidate_generator.actions[0]
+                    .facelet_changes.changes.size()
+             << endl;
+
         fill(minimum_scores.begin(), minimum_scores.end(), 9999);
         for (auto current_cost = 0; current_cost < 10000; current_cost++) {
             auto current_minimum_score = 9999;
-            for (const auto& node : nodes[current_cost]) {
+            for (const auto node : nodes[current_cost]) {
                 current_minimum_score =
                     min(current_minimum_score, node->state.score);
                 if (node->state.score == 0) {
                     cout << "Unit solved!" << endl;
                     return node;
                 }
-                for (const auto& action : action_candidate_generator.actions) {
+                const auto tmp_actions = action_candidate_generator.actions;
+                for (const auto action : tmp_actions) {
+                    // for (const auto& action :
+                    // action_candidate_generator.actions) {
+                    action.formula.Print();
+                    cout << endl;
+                    cout << action.facelet_changes.changes.size() << endl;
+
                     auto new_state = node->state;
                     new_state.Apply(action, n_colors);
                     if (new_state.n_moves >= (int)nodes.size())
@@ -968,8 +1038,8 @@ struct Problem {
     getline(iss_puzzle_type, token, '/');
     const auto m = stoi(token);
     getline(iss_puzzles, solution_state, ',');
-    const auto is_normal = solution_state[0] != 'N';
-    getline(iss_sample, token, ','); // problem_id
+    const auto is_normal = solution_state[0] != 'N'; // TODO: 修正
+    getline(iss_sample, token, ',');                 // problem_id
     assert(stoi(token) == problem_id);
     getline(iss_sample, s_sample_formula, ',');
     const auto sample_formula = Formula(s_sample_formula, n + 1);
@@ -1032,8 +1102,6 @@ template <int n, int m> void Solve(const Problem& problem) {
     auto initial_globe = Globe<height, width>(n_colors);
     initial_globe.RotateInv(problem.sample_formula);
     initial_globe.Display();
-    auto solver = BeamSearchSolver<width>(n_colors, beam_width, formula_file,
-                                          problem.is_normal);
 
     auto display_globe = [&initial_globe](const Formula& solution) {
         auto globe = initial_globe;
@@ -1058,9 +1126,38 @@ template <int n, int m> void Solve(const Problem& problem) {
         }
         cout << endl;
     }
-    // TODO: 奇数の高さのやつの中心を合わせる
-    assert(n % 2 == 1);
+    // 赤道を揃える
+    if constexpr (n % 2 == 0) {
+        auto delta = 0;
+        for (const auto mov : problem.sample_formula.moves) {
+            if (mov.unit_id == height / 2) {
+                if (mov.unit_move.direction == UnitMove::Direction::R)
+                    delta++;
+                else if (mov.unit_move.direction == UnitMove::Direction::Rp)
+                    delta--;
+                else
+                    assert(false);
+            }
+        }
+        delta = (delta % width + width) % width;
+        if (delta > width / 2)
+            delta -= width;
+        cout << format("Equator: {}", delta) << endl;
+        for (; delta > 0; delta--) {
+            const auto mov = Move(UnitMove::Direction::R, height / 2, height);
+            globe.Rotate(mov);
+            result_moves.emplace_back(mov);
+        }
+        for (; delta < 0; delta++) {
+            const auto mov = Move(UnitMove::Direction::Rp, height / 2, height);
+            globe.Rotate(mov);
+            result_moves.emplace_back(mov);
+        }
+    }
+    // 赤道以外をビームサーチで揃える
     auto n_pre_rotations = (int)result_moves.size();
+    auto solver = BeamSearchSolver<width>(n_colors, beam_width, formula_file,
+                                          problem.is_normal);
     for (auto unit_id = 0; unit_id < (int)globe.units.size(); unit_id++) {
         cout << format("Solving unit {}/{}...", unit_id + 1,
                        (int)globe.units.size())
