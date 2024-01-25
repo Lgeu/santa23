@@ -25,6 +25,7 @@ using std::string;
 using std::swap;
 using std::unordered_set;
 using std::vector;
+using ios = std::ios;
 
 using i8 = signed char;
 using u8 = unsigned char;
@@ -306,6 +307,21 @@ template <int width> struct UnitGlobe {
         for (auto i = 0; i < width * 2; i++)
             score += (int)facelets[i / width][i % width].data != i / n;
         return score;
+    }
+    // 虹のみ
+    inline auto ComputeParity() const {
+        auto parity = false;
+        auto tmp_globe = UnitGlobe(*this);
+        auto data = (u8*)&tmp_globe.facelets;
+        for (auto i = 0; i < width * 2; i++) {
+            auto p = (int)data[i];
+            while (i != p) {
+                std::swap(data[i], data[p]);
+                parity = !parity;
+                p = (int)data[i];
+            }
+        }
+        return parity;
     }
     static inline auto ComputeFaceletChanges(const UnitFormula& formula) {
         auto unit_globe = UnitGlobe(width * 2);
@@ -1006,7 +1022,7 @@ struct Problem {
 }
 
 template <int n, int m> void Solve(const Problem& problem) {
-    const auto formula_filename = format("out/globe_formula_{}_56_10_4.txt", m);
+    const auto formula_file = format("out/globe_formula_{}_56_10_4.txt", m);
     const auto beam_width = 2;
 
     constexpr auto height = n + 1;
@@ -1016,8 +1032,8 @@ template <int n, int m> void Solve(const Problem& problem) {
     auto initial_globe = Globe<height, width>(n_colors);
     initial_globe.RotateInv(problem.sample_formula);
     initial_globe.Display();
-    auto solver = BeamSearchSolver<width>(n_colors, beam_width,
-                                          formula_filename, problem.is_normal);
+    auto solver = BeamSearchSolver<width>(n_colors, beam_width, formula_file,
+                                          problem.is_normal);
 
     auto display_globe = [&initial_globe](const Formula& solution) {
         auto globe = initial_globe;
@@ -1027,16 +1043,29 @@ template <int n, int m> void Solve(const Problem& problem) {
 
     // 解く
     auto result_moves = vector<Move>();
-    // TODO: 虹でパリティを合わせる
-    assert(problem.is_normal);
+    auto globe = initial_globe;
+    // 虹でパリティを合わせる
+    if (!problem.is_normal) {
+        cout << "Parity: ";
+        for (auto i = 0; i < (int)globe.units.size(); i++) {
+            auto parity = globe.units[i].ComputeParity();
+            cout << parity;
+            if (parity) {
+                const auto mov = Move(UnitMove::Direction::R, i, height);
+                globe.Rotate(mov);
+                result_moves.emplace_back(mov);
+            }
+        }
+        cout << endl;
+    }
     // TODO: 奇数の高さのやつの中心を合わせる
     assert(n % 2 == 1);
-    for (auto unit_id = 0; unit_id < (int)initial_globe.units.size();
-         unit_id++) {
+    auto n_pre_rotations = (int)result_moves.size();
+    for (auto unit_id = 0; unit_id < (int)globe.units.size(); unit_id++) {
         cout << format("Solving unit {}/{}...", unit_id + 1,
-                       (int)initial_globe.units.size())
+                       (int)globe.units.size())
              << endl;
-        const auto node = solver.Solve(initial_globe.units[unit_id]);
+        const auto node = solver.Solve(globe.units[unit_id]);
 
         // 結果を復元する
         for (auto p = node; p->parent != nullptr; p = p->parent) {
@@ -1050,15 +1079,46 @@ template <int n, int m> void Solve(const Problem& problem) {
             }
         }
     }
-
-    reverse(result_moves.begin(), result_moves.end());
+    reverse(result_moves.begin() + n_pre_rotations, result_moves.end());
     const auto solution = Formula(result_moves);
     display_globe(solution);
     cout << solution.moves.size() << endl;
     solution.template Print<height>();
     cout << endl;
 
-    // TODO: 結果を保存する
+    // 結果を保存する
+    const auto all_solutions_file =
+        format("solution_globe/{}_all.txt", problem.problem_id);
+    const auto best_solution_file =
+        format("solution_globe/{}_best.txt", problem.problem_id);
+    auto ofs_all = ofstream(all_solutions_file, ios::app);
+    if (ofs_all.good()) {
+        solution.template Print<height>(ofs_all);
+        ofs_all << endl;
+        ofs_all << format("score={} beam_width={} formula_file={}",
+                          solution.moves.size(), beam_width, formula_file)
+                << endl;
+        ofs_all.close();
+    } else
+        cout << "Failed to open " << all_solutions_file << endl;
+    auto ifs_best = ifstream(best_solution_file);
+    auto best_score = 9999;
+    if (ifs_best.good()) {
+        string line;
+        getline(ifs_best, line); // 解を読み飛ばす
+        getline(ifs_best, line); // スコアを読む
+        best_score = stoi(line);
+        ifs_best.close();
+    }
+    if ((int)solution.moves.size() < best_score) {
+        auto ofs_best = ofstream(best_solution_file);
+        if (ofs_best.good()) {
+            solution.template Print<height>(ofs_best);
+            ofs_best << endl << solution.moves.size() << endl;
+            ofs_best.close();
+        } else
+            cout << "Failed to open " << best_solution_file << endl;
+    }
 }
 
 [[maybe_unused]] static void Solve(const int problem_id) {
