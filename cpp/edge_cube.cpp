@@ -2,6 +2,19 @@
 
 using std::min;
 
+struct RawEdgeFacletPosition {
+    i8 face_and_edge_id;
+    i8 x;
+};
+
+struct EdgeFaceletChanges {
+    struct Change {
+        RawEdgeFacletPosition from, to;
+    };
+    vector<Change> changes;
+    bool parity_change;
+};
+
 // 辺のための色
 struct ColorType48 {
     static constexpr auto kNColors = 48;
@@ -118,6 +131,26 @@ template <int order, typename ColorType_ = ColorType48> struct EdgeFace {
         }
     }
 
+    static inline RawEdgeFacletPosition GetRawPosition(const int y,
+                                                       const int x) {
+        if (y == 0) { // 上
+            assert(1 <= x && x < order - 1);
+            return {0, (i8)(x - 1)};
+        } else if (y == order - 1) { // 下
+            assert(1 <= x && x < order - 1);
+            return {2, (i8)(order - 2 - x)};
+        } else if (x == 0) { // 左
+            assert(1 <= y && y < order - 1);
+            return {3, (i8)(order - 2 - y)};
+        } else if (x == order - 1) { // 右
+            assert(1 <= y && y < order - 1);
+            return {1, (i8)(y - 1)};
+        } else {
+            assert(false);
+            return {};
+        }
+    }
+
     inline ColorType Get(const int y, const int x) const {
         if (y == 0) { // 上
             assert(1 <= x && x < order - 1);
@@ -166,6 +199,8 @@ template <int order, typename ColorType_ = ColorType48> struct EdgeFace {
             return;
         Set(y, x, color);
     }
+
+    inline auto operator<=>(const EdgeFace&) const = default;
 };
 
 template <int order_, typename ColorType_ = ColorType48> struct EdgeCube {
@@ -305,6 +340,7 @@ template <int order_, typename ColorType_ = ColorType48> struct EdgeCube {
 
     inline void Rotate(const Formula& formula) {
         if (formula.use_facelet_changes) {
+            assert(false); // もう使わない
             array<ColorType, 6 * 4 * (order - 2)> new_colors;
             for (auto i = 0; i < (int)formula.facelet_changes.size(); i++)
                 new_colors[i] = Get(formula.facelet_changes[i].from);
@@ -317,6 +353,23 @@ template <int order_, typename ColorType_ = ColorType48> struct EdgeCube {
         } else
             for (const auto& m : formula.moves)
                 Rotate(m);
+    }
+
+    inline void Rotate(const EdgeFaceletChanges& facelet_changes) {
+        static_assert(sizeof(faces) == 6 * 4 * (order - 2));
+        array<ColorType, 6 * 4 * (order - 2)> tmp;
+        for (auto i = 0; i < (int)facelet_changes.changes.size(); i++) {
+            const auto [face_and_edge_id, x] = facelet_changes.changes[i].from;
+            tmp[i] =
+                faces[face_and_edge_id / 4].facelets[face_and_edge_id % 4][x];
+        }
+        for (auto i = 0; i < (int)facelet_changes.changes.size(); i++) {
+            const auto [face_and_edge_id, x] = facelet_changes.changes[i].to;
+            faces[face_and_edge_id / 4].facelets[face_and_edge_id % 4][x] =
+                tmp[i];
+        }
+        if constexpr (order % 2 == 0)
+            corner_parity ^= facelet_changes.parity_change;
     }
 
     inline static constexpr auto AllFaceletPositions() {
@@ -686,6 +739,33 @@ template <int order_, typename ColorType_ = ColorType48> struct EdgeCube {
         }
     }
 
+    static inline auto ComputeFaceletChanges(const Formula& formula) {
+        auto changes = vector<EdgeFaceletChanges::Change>();
+        bool parity_change = false;
+        auto cube = EdgeCube();
+        cube.Reset();
+        for (const auto& mov : formula.moves) {
+            cube.Rotate(mov);
+            parity_change ^= mov.IsFaceRotation<order>();
+        }
+        for (const FaceletPosition pos : AllFaceletPositions()) {
+            const auto color = cube.Get(pos);
+            const auto original_pos =
+                ComputeOriginalFaceletPosition(pos.y, pos.x, color);
+            if (pos != original_pos) {
+                auto raw_pos =
+                    EdgeFace<order, ColorType>::GetRawPosition(pos.y, pos.x);
+                raw_pos.face_and_edge_id += 4 * pos.face_id;
+                auto raw_original_pos =
+                    EdgeFace<order, ColorType>::GetRawPosition(original_pos.y,
+                                                               original_pos.x);
+                raw_original_pos.face_and_edge_id += 4 * original_pos.face_id;
+                changes.push_back({raw_original_pos, raw_pos});
+            }
+        }
+        return EdgeFaceletChanges{changes, parity_change};
+    }
+
     inline void Print() const {
         assert(false);
         // TODO
@@ -716,13 +796,40 @@ template <int order_, typename ColorType_ = ColorType48> struct EdgeCube {
         }
     }
 
+    // unordered_set のためのハッシュ関数
+    struct Hash {
+        inline size_t operator()(const EdgeCube& cube) const {
+            auto result = (size_t)0xcbf29ce484222325ull;
+            for (const auto& face : cube.faces)
+                for (const auto& edge : face.facelets)
+                    for (const auto& facelet : edge)
+                        result = (result ^ facelet.data) * 0x100000001b3ull;
+            return result;
+        }
+    };
+
+    inline auto operator<=>(const EdgeCube&) const = default;
+
     // TODO: Cube との相互変換
 };
 
-using EdgeAction = Formula;
+template <int order> struct EdgeAction {
+    using EdgeCube = ::EdgeCube<order>;
+    Formula formula;
+    EdgeFaceletChanges facelet_changes;
+
+    inline EdgeAction(const Formula& formula)
+        : formula(formula),
+          facelet_changes(EdgeCube::ComputeFaceletChanges(formula)) {
+        assert(!formula.use_facelet_changes);
+    }
+
+    inline auto Cost() const { return formula.Cost(); }
+};
 
 template <int order> struct EdgeState {
     using EdgeCube = ::EdgeCube<order>;
+    using EdgeAction = ::EdgeAction<order>;
     EdgeCube cube;
     int score;   // target との距離
     int n_moves; // これまでに回した回数
@@ -733,7 +840,7 @@ template <int order> struct EdgeState {
     // inplace に変更する
     inline void Apply(const EdgeAction& action,
                       const EdgeCube& /*target_cube*/) {
-        cube.Rotate(action);
+        cube.Rotate(action.facelet_changes);
         score = cube.ComputeEdgeScore();
         n_moves += action.Cost();
     }
@@ -743,6 +850,7 @@ template <int order> struct EdgeState {
 template <int order> struct EdgeActionCandidateGenerator {
     using EdgeCube = ::EdgeCube<order>;
     using EdgeState = ::EdgeState<order>;
+    using EdgeAction = ::EdgeAction<order>;
     vector<EdgeAction> actions;
 
     // ファイルから手筋を読み取る
@@ -752,11 +860,10 @@ template <int order> struct EdgeActionCandidateGenerator {
 
         // 面の回転 1 つだけからなる手筋を別途加える
         for (auto i = 0; i < 6; i++) {
-            actions.emplace_back(vector<Move>{Move{(Move::Direction)i, (i8)0}});
-            actions.back().EnableFaceletChanges<EdgeCube>();
             actions.emplace_back(
-                vector<Move>{Move{(Move::Direction)i, (i8)(order - 1)}});
-            actions.back().EnableFaceletChanges<EdgeCube>();
+                Formula(vector<Move>{Move{(Move::Direction)i, (i8)0}}));
+            actions.emplace_back(Formula(
+                vector<Move>{Move{(Move::Direction)i, (i8)(order - 1)}}));
         }
 
         // ファイルから読み取る
@@ -771,8 +878,7 @@ template <int order> struct EdgeActionCandidateGenerator {
                 continue;
             if (!is_normal && line[0] == '0')
                 continue;
-            actions.emplace_back(line.substr(2));
-            actions.back().EnableFaceletChanges<EdgeCube>();
+            actions.emplace_back(Formula(line.substr(2)));
         }
 
         // TODO: 重複があるかもしれないので確認した方が良い
@@ -783,6 +889,7 @@ template <int order> struct EdgeActionCandidateGenerator {
 
 template <int order> struct EdgeNode {
     using EdgeState = ::EdgeState<order>;
+    using EdgeAction = ::EdgeAction<order>;
     EdgeState state;
     shared_ptr<EdgeNode> parent;
     EdgeAction last_action;
@@ -795,6 +902,7 @@ template <int order> struct EdgeBeamSearchSolver {
     using EdgeCube = ::EdgeCube<order>;
     using EdgeState = ::EdgeState<order>;
     using EdgeNode = ::EdgeNode<order>;
+    using EdgeAction = ::EdgeAction<order>;
     using EdgeActionCandidateGenerator = ::EdgeActionCandidateGenerator<order>;
 
     EdgeCube target_cube;
@@ -815,7 +923,7 @@ template <int order> struct EdgeBeamSearchSolver {
 
         const auto start_state = EdgeState(start_cube, target_cube);
         const auto start_node = make_shared<EdgeNode>(
-            start_state, nullptr, EdgeAction{vector<Move>()});
+            start_state, nullptr, EdgeAction(Formula(vector<Move>())));
         nodes.clear();
         nodes.resize(1);
         nodes[0].push_back(start_node);
@@ -929,9 +1037,9 @@ template <int order> struct EdgeBeamSearchSolver {
     for (auto i : {0, 1, 2, 12, 13}) {
         const auto action = action_candidate_generator.actions[i];
         cout << format("# {}", i) << endl;
-        action.Print();
+        action.formula.Print();
         cout << endl;
-        action.Display<EdgeCube>();
+        action.formula.Display<EdgeCube>();
         cout << endl << endl;
     }
 }
@@ -974,8 +1082,9 @@ template <int order> struct EdgeBeamSearchSolver {
         cout << node->state.n_moves << endl;
         auto moves = vector<Move>();
         for (auto p = node; p->parent != nullptr; p = p->parent)
-            for (auto i = (int)p->last_action.moves.size() - 1; i >= 0; i--)
-                moves.emplace_back(p->last_action.moves[i]);
+            for (auto i = (int)p->last_action.formula.moves.size() - 1; i >= 0;
+                 i--)
+                moves.emplace_back(p->last_action.formula.moves[i]);
         reverse(moves.begin(), moves.end());
         const auto solution = Formula(moves);
         solution.Print();
@@ -1081,8 +1190,8 @@ static void SolveWithOrder(const int problem_id, const bool is_normal,
     // 結果を表示する
     cout << node->state.n_moves << endl;
     for (auto p = node; p->parent != nullptr; p = p->parent)
-        for (auto i = (int)p->last_action.moves.size() - 1; i >= 0; i--)
-            result_moves.emplace_back(p->last_action.moves[i]);
+        for (auto i = (int)p->last_action.formula.moves.size() - 1; i >= 0; i--)
+            result_moves.emplace_back(p->last_action.formula.moves[i]);
     reverse(result_moves.begin() + parity_resolving_formula.Cost(),
             result_moves.end());
     const auto solution = Formula(result_moves);
