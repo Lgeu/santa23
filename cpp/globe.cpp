@@ -1,6 +1,8 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
+#include <chrono>
+#include <cstring>
 #include <format>
 #include <fstream>
 #include <iostream>
@@ -13,6 +15,7 @@
 using std::array;
 using std::cout;
 using std::endl;
+using std::fill;
 using std::format;
 using std::ifstream;
 using std::istringstream;
@@ -30,6 +33,27 @@ using ios = std::ios;
 using i8 = signed char;
 using u8 = unsigned char;
 using u64 = unsigned long long;
+
+struct Timer {
+    std::chrono::system_clock::time_point start;
+    inline Timer() { start = std::chrono::system_clock::now(); }
+    string operator()() {
+        int elapsed =
+            (int)(std::chrono::duration_cast<std::chrono::milliseconds>(
+                      std::chrono::system_clock::now() - start)
+                      .count()) /
+            1000;
+        return "elapsed time: " + std::to_string(elapsed);
+    }
+    inline void Print(ostream& os = cout) const {
+        int elapsed =
+            (int)(std::chrono::duration_cast<std::chrono::milliseconds>(
+                      std::chrono::system_clock::now() - start)
+                      .count()) /
+            1000;
+        os << "elapsed time: " + std::to_string(elapsed) << endl;
+    }
+};
 
 struct RandomNumberGenerator {
   private:
@@ -104,12 +128,12 @@ struct Move {
 
     inline Move(const UnitMove::Direction direction, const int depth,
                 const int height)
-        : unit_move(direction, direction == UnitMove::Direction::F ? depth
-                               : depth < (height + 1) / 2          ? 0
-                                                                   : 1),
-          unit_id(direction == UnitMove::Direction::F ? -1
-                  : depth < (height + 1) / 2          ? depth
-                                                      : height - 1 - depth) {
+        : unit_move(direction, direction == UnitMove::Direction::F
+                                   ? depth
+                                   : depth < (height + 1) / 2 ? 0 : 1),
+          unit_id(direction == UnitMove::Direction::F
+                      ? -1
+                      : depth < (height + 1) / 2 ? depth : height - 1 - depth) {
         assert(unit_id < (height + 1) / 2);
     }
 
@@ -120,10 +144,10 @@ struct Move {
         assert(unit_id < (height + 1) / 2);
         if (unit_move.direction != UnitMove::Direction::F)
             assert(unit_move.depth == 0 || unit_move.depth == 1);
-        const auto depth = unit_move.direction == UnitMove::Direction::F
-                               ? unit_move.depth
-                           : unit_move.depth == 0 ? unit_id
-                                                  : height - 1 - unit_id;
+        const auto depth =
+            unit_move.direction == UnitMove::Direction::F
+                ? unit_move.depth
+                : unit_move.depth == 0 ? unit_id : height - 1 - unit_id;
         static constexpr auto direction_strings =
             array<const char*, 3>{"r", "-r", "f"};
         os << direction_strings[int(unit_move.direction)] << int(depth);
@@ -311,6 +335,18 @@ template <int width> struct UnitGlobe {
             score += (int)facelets[i / width][i % width].data != i / n;
         return score;
     }
+    inline auto ComputeScoreAffectedBy(const FaceletChanges& facelet_changes,
+                                       const int n_colors) const {
+        assert(width * 2 % n_colors == 0);
+        const auto n = width * 2 / n_colors;
+        auto score = 0;
+        for (auto& change : facelet_changes.changes) {
+            score +=
+                (int)facelets[change.from / width][change.from % width].data !=
+                change.from / n;
+        }
+        return score;
+    }
     // 虹のみ
     inline auto ComputeParity() const {
         auto parity = false;
@@ -407,7 +443,7 @@ template <int height, int width> struct Globe {
 };
 
 template <int width> struct GlobeFormulaSearcher {
-    static constexpr auto kMaxFlipDepth = 4;
+    static constexpr auto kMaxFlipDepth = 5;
 
     using UnitGlobe = ::UnitGlobe<width>;
     int max_cost;
@@ -446,6 +482,7 @@ template <int width> struct GlobeFormulaSearcher {
         RemoveDuplicates(true);
         cout << format("Done. {} formulas left.", results.size()) << endl;
 
+        auto n_results = results.size();
         for (auto i = 0; i < max_conjugate_depth; i++) {
             // A と A' で挟んで水増しする
             cout << format("Augmenting (conjugate {}/{})...", i + 1,
@@ -458,6 +495,12 @@ template <int width> struct GlobeFormulaSearcher {
             cout << "Removing duplicates..." << endl;
             RemoveDuplicates(true);
             cout << format("Done. {} formulas left.", results.size()) << endl;
+
+            if (results.size() == n_results) {
+                cout << "No more conjugate augmentation." << endl;
+                break;
+            }
+            n_results = results.size();
         }
 
         return results;
@@ -756,8 +799,13 @@ template <int width> struct State {
           n_moves() {}
 
     inline void Apply(const Action& action, const int n_colors) {
+        auto score_diff =
+            unit_globe.ComputeScoreAffectedBy(action.facelet_changes, n_colors);
         unit_globe.Rotate(action.facelet_changes);
-        score = unit_globe.ComputeScore(n_colors);
+        score_diff = unit_globe.ComputeScoreAffectedBy(action.facelet_changes,
+                                                       n_colors) -
+                     score_diff;
+        score += score_diff;
         n_moves += (int)action.formula.unit_moves.size();
     }
 };
@@ -798,6 +846,7 @@ template <int width> struct BeamSearchSolver {
           action_candidate_generator(formula_filename, is_normal), nodes() {}
 
     inline shared_ptr<Node> Solve(const UnitGlobe& initial_unit_globe) {
+        auto timer = Timer();
         auto rng = RandomNumberGenerator(42);
         const auto initial_state = State(initial_unit_globe, n_colors);
         const auto initial_node =
@@ -814,6 +863,7 @@ template <int width> struct BeamSearchSolver {
                     min(current_minimum_score, node->state.score);
                 if (node->state.score == 0) {
                     cout << "Unit solved!" << endl;
+                    timer.Print();
                     return node;
                 }
                 for (const auto& action : action_candidate_generator.actions) {
@@ -982,6 +1032,10 @@ struct Problem {
     getline(iss_sample, s_sample_formula, ',');
     const auto sample_formula = Formula(s_sample_formula, n + 1);
 
+    cout << format("problem_id: {}, n: {}, m: {}, is_normal: {}",
+                   problem_id, n, m, is_normal)
+         << endl;
+
     return Problem{problem_id, n, m, is_normal, sample_formula};
 };
 
@@ -1029,10 +1083,161 @@ struct Problem {
     globe.Display();
 }
 
-template <int n, int m> void Solve(const Problem& problem) {
-    const auto formula_file = format("out/globe_formula_{}_56_10_4.txt", m);
-    const auto beam_width = 2;
+struct Depth {
+    vector<int> depth;
+    inline Depth() : depth(1, -1) {};
+    inline void Push(int d) {
+        if (depth.back() == d)
+            depth.pop_back();
+        else
+            depth.push_back(d);
+    }
+    bool operator == (const Depth& other) const {
+        return depth == other.depth;
+    }
+};
 
+vector<Move> MergeResultMoves(vector<Move> const& result_moves1, vector<Move> const& result_moves2) {
+    if (result_moves1.empty())
+        return result_moves2;
+    if (result_moves2.empty())
+        return result_moves1;
+
+    // Formula(result_moves1).Print<4>();
+    // cout << endl;
+    // Formula(result_moves2).Print<4>();
+    // cout << endl;
+
+    vector<Move> merged_moves;
+    vector<vector<std::pair<Depth, int>>> depth_change(2);
+    vector<vector<Move>> result_moves_by_unit = {result_moves1, result_moves2};
+
+    cout << "2 UnitGlobe solutions before merge: " << ssize(result_moves_by_unit[0]) << " " << ssize(result_moves_by_unit[1]) << endl;
+    for (int i = 0; i < 2; ++i) {
+        Depth curr_depth; // sentinel
+        for (auto& move : result_moves_by_unit[i]) {
+            if (move.unit_move.direction == UnitMove::Direction::F) {
+                auto prev_depth = curr_depth;
+                curr_depth.Push(move.unit_move.depth);
+                depth_change[i].push_back({prev_depth, move.unit_move.depth});
+                // for(auto d : curr_depth)
+                //     cout << d << " ";
+                // cout << endl;
+            }
+        }
+        // cout << endl;
+        assert(curr_depth.depth.size() == 1 && curr_depth.depth[0] == -1);
+
+    }
+    // Find the longest common subsequence
+    // can remove Fs * len(LCS)
+    vector<vector<int>> dp(depth_change[0].size()+1, vector<int>(depth_change[1].size()+1, 0));
+    for (int i = 0; i < ssize(depth_change[0]); ++i) {
+        for (int j = 0; j < ssize(depth_change[1]); ++j) {
+            if (depth_change[0][i] == depth_change[1][j]) {
+                dp[i + 1][j + 1] = dp[i][j] + 1;
+            } else {
+                dp[i + 1][j + 1] = std::max(dp[i + 1][j], dp[i][j + 1]);
+            }
+        }
+    }
+    cout << "LCS: " << dp[ssize(depth_change[0])][ssize(depth_change[1])] << endl;
+
+    // vector<vector<int>> merged_depth;
+    vector<std::pair<Depth, int>> fs;
+    // merged_depth.push_back({-1}); // both should be in depth0 state at the end
+    int idx0 = ssize(depth_change[0]) - 1, idx1 = ssize(depth_change[1]) - 1;
+    while (idx0 >= 0 || idx1 >= 0) {
+        if (idx0 < 0) {
+            fs.push_back(depth_change[1][idx1]);
+            --idx1;
+        } else if (idx1 < 0) {
+            fs.push_back(depth_change[0][idx0]);
+            --idx0;
+        } else if (depth_change[0][idx0] == depth_change[1][idx1]) {
+            fs.push_back(depth_change[0][idx0]);
+            --idx0;
+            --idx1;
+        } else if (dp[idx0][idx1 + 1] > dp[idx0 + 1][idx1]) {
+            fs.push_back(depth_change[0][idx0]);
+            --idx0;
+        } else {
+            fs.push_back(depth_change[1][idx1]);
+            --idx1;
+        }
+    }
+    // reverse(merged_depth.begin(), merged_depth.end());
+    // cout << "merged_depth: " << ssize(merged_depth) << endl;
+    // for(auto& d : merged_depth) {
+    //     for(auto dd : d)
+    //         cout << dd << " ";
+    //     cout << endl;
+    // }
+    reverse(fs.begin(), fs.end());
+    // cout << "fs: " << ssize(fs) << endl;
+    // for(auto f : fs)
+    //     cout << f.second << " ";
+    // cout << endl;
+
+    idx0 = 0, idx1 = 0;
+    Depth curr_depth0, curr_depth1;
+    for (auto& [depth, f]: fs) {
+        // cout << "f: " << f << " idx0 " << idx0 << " idx1 " << idx1 << endl;
+        // for (auto& d: depth.depth) {
+        //     cout << d << " ";
+        // }
+        // cout << endl;
+        // for (auto& d: curr_depth0.depth) {
+        //     cout << d << " ";
+        // }
+        // cout << endl;
+        // for (auto& d: curr_depth1.depth) {
+        //     cout << d << " ";
+        // }
+        // cout << endl;
+        while(result_moves_by_unit[0][idx0].unit_move.direction != UnitMove::Direction::F && idx0 < ssize(result_moves_by_unit[0])) {
+            // cout << "idx0++";
+            // result_moves_by_unit[0][idx0].unit_move.Print();
+            // cout << endl;
+            merged_moves.push_back(result_moves_by_unit[0][idx0++]);
+        }
+        while(result_moves_by_unit[1][idx1].unit_move.direction != UnitMove::Direction::F && idx1 < ssize(result_moves_by_unit[1])) {
+            // cout << "idx1++";
+            // result_moves_by_unit[1][idx1].unit_move.Print();
+            // cout << endl;
+            merged_moves.push_back(result_moves_by_unit[1][idx1++]);
+        }
+        if (f != -1)
+            merged_moves.push_back(Move(UnitMove::Direction::F, f, -1));
+
+        bool ok = f == -1;
+        if (idx0 < ssize(result_moves_by_unit[0]) && result_moves_by_unit[0][idx0].unit_move.depth == f && curr_depth0 == depth) {
+            // cout << "idx0++ f" << (int)result_moves_by_unit[0][idx0].unit_move.depth << endl;
+            ok = true;
+            idx0++;
+            curr_depth0.Push(f);
+        }
+        if (idx1 < ssize(result_moves_by_unit[1]) && result_moves_by_unit[1][idx1].unit_move.depth == f && curr_depth1 == depth) {
+            // cout << "idx1++ f" << (int)result_moves_by_unit[1][idx1].unit_move.depth << endl;
+            ok = true;
+            idx1++;
+            curr_depth1.Push(f);
+        }
+        assert(ok);
+    }
+    cout << "merged_moves: " << ssize(merged_moves) << endl;
+    // Formula(merged_moves).Print<8>();
+    // cout << endl;
+
+    return merged_moves;
+}
+
+template <int n, int m>
+void Solve(const Problem& problem, const int beam_width = 2,
+           const int max_cost = 56, const int max_depth = 10,
+           const int max_conjugate_depth = 4) {
+    const auto formula_file = format("out/globe_formula_{}_{}_{}_{}.txt", m,
+                                     max_cost, max_depth, max_conjugate_depth);
     constexpr auto height = n + 1;
     constexpr auto width = m * 2;
     const auto n_colors =
@@ -1093,9 +1298,10 @@ template <int n, int m> void Solve(const Problem& problem) {
         }
     }
     // 赤道以外をビームサーチで揃える
-    auto n_pre_rotations = (int)result_moves.size();
+    // auto n_pre_rotations = (int)result_moves.size();
     auto solver = BeamSearchSolver<width>(n_colors, beam_width, formula_file,
                                           problem.is_normal);
+    auto result_moves_by_unit = vector<vector<Move>>(globe.units.size());
     for (auto unit_id = 0; unit_id < (int)globe.units.size(); unit_id++) {
         cout << format("Solving unit {}/{}...", unit_id + 1,
                        (int)globe.units.size())
@@ -1107,14 +1313,22 @@ template <int n, int m> void Solve(const Problem& problem) {
             for (auto i = (int)p->last_action.formula.unit_moves.size() - 1;
                  i >= 0; i--) {
                 const auto unit_move = p->last_action.formula.unit_moves[i];
-                result_moves.emplace_back(
+                result_moves_by_unit[unit_id].emplace_back(
                     unit_move, unit_move.direction == UnitMove::Direction::F
                                    ? -1
                                    : unit_id);
             }
         }
+        reverse(result_moves_by_unit[unit_id].begin(),
+                result_moves_by_unit[unit_id].end());
     }
-    reverse(result_moves.begin() + n_pre_rotations, result_moves.end());
+
+    cout << "merge moves" << endl;
+    for (auto& moves : result_moves_by_unit) {
+        result_moves = MergeResultMoves(result_moves, moves);
+        // result_moves.insert(result_moves.end(), moves.begin(), moves.end()); // this replicates the original behavior (no merge)
+    }
+    // reverse(result_moves.begin() + n_pre_rotations, result_moves.end());
     const auto solution = Formula(result_moves);
     display_globe(solution);
     cout << solution.moves.size() << endl;
@@ -1156,29 +1370,40 @@ template <int n, int m> void Solve(const Problem& problem) {
     }
 }
 
-[[maybe_unused]] static void Solve(const int problem_id) {
+[[maybe_unused]] static void
+Solve(const int problem_id, const int beam_width = 2, const int max_cost = 56,
+      const int max_depth = 10, const int max_conjugate_depth = 4) {
     const auto filename_puzzles = "../input/puzzles.csv";
     const auto filename_sample = "../input/sample_submission.csv";
     const auto problem =
         ReadKaggleInput(filename_puzzles, filename_sample, problem_id);
     if (problem.n == 1 && problem.m == 8)
-        Solve<1, 8>(problem);
+        Solve<1, 8>(problem, beam_width, max_cost, max_depth,
+                    max_conjugate_depth);
     else if (problem.n == 1 && problem.m == 16)
-        Solve<1, 16>(problem);
+        Solve<1, 16>(problem, beam_width, max_cost, max_depth,
+                     max_conjugate_depth);
     else if (problem.n == 2 && problem.m == 6)
-        Solve<2, 6>(problem);
+        Solve<2, 6>(problem, beam_width, max_cost, max_depth,
+                    max_conjugate_depth);
     else if (problem.n == 3 && problem.m == 4)
-        Solve<3, 4>(problem);
+        Solve<3, 4>(problem, beam_width, max_cost, max_depth,
+                    max_conjugate_depth);
     else if (problem.n == 6 && problem.m == 4)
-        Solve<6, 4>(problem);
+        Solve<6, 4>(problem, beam_width, max_cost, max_depth,
+                    max_conjugate_depth);
     else if (problem.n == 6 && problem.m == 8)
-        Solve<6, 8>(problem);
+        Solve<6, 8>(problem, beam_width, max_cost, max_depth,
+                    max_conjugate_depth);
     else if (problem.n == 6 && problem.m == 10)
-        Solve<6, 10>(problem);
+        Solve<6, 10>(problem, beam_width, max_cost, max_depth,
+                     max_conjugate_depth);
     else if (problem.n == 3 && problem.m == 33)
-        Solve<3, 33>(problem);
+        Solve<3, 33>(problem, beam_width, max_cost, max_depth,
+                     max_conjugate_depth);
     else if (problem.n == 8 && problem.m == 25)
-        Solve<8, 25>(problem);
+        Solve<8, 25>(problem, beam_width, max_cost, max_depth,
+                     max_conjugate_depth);
     else {
         cout << format("n = {}, m = {} is not supported", problem.n, problem.m)
              << endl;
@@ -1224,10 +1449,33 @@ int main() { TestReadKaggleInput(); }
 // clang++ -std=c++20 -Wall -Wextra -O3 globe.cpp -DSOLVE
 #ifdef SOLVE
 int main(const int argc, const char* const* const argv) {
-    if (argc != 2) {
-        cout << "Usage: " << argv[0] << " problem_id" << endl;
+    if (argc < 2) {
+        cout << "Usage: " << argv[0] << " problem_id [beam_width] [max_cost] [max_depth] "
+                "[max_conjugate_depth]" << endl;
         return 1;
     }
-    Solve(atoi(argv[1]));
+    switch (argc) {
+    case 2:
+        Solve(atoi(argv[1]));
+        break;
+    case 3:
+        Solve(atoi(argv[1]), atoi(argv[2]));
+        break;
+    case 4:
+        Solve(atoi(argv[1]), atoi(argv[2]), atoi(argv[3]));
+        break;
+    case 5:
+        Solve(atoi(argv[1]), atoi(argv[2]), atoi(argv[3]), atoi(argv[4]));
+        break;
+    case 6:
+        Solve(atoi(argv[1]), atoi(argv[2]), atoi(argv[3]), atoi(argv[4]),
+              atoi(argv[5]));
+        break;
+    default:
+        cout << "Usage: " << argv[0]
+             << " problem_id [beam_width] [max_cost] [max_depth] "
+                "[max_conjugate_depth]"
+             << endl;
+    }
 }
 #endif
