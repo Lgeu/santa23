@@ -808,19 +808,22 @@ template <int width> struct State {
         int n_min_actions =
             std::max(n_last_actions, (int) action.formula.unit_moves.size());
         int correction = 0;
+        // cout << n_min_actions << endl;
         for (int i = 0; i < n_min_actions; i++) {
             if (last_action.formula.unit_moves[n_last_actions - 1 - i]
                     .IsOpposite(action.formula.unit_moves[i])) {
-                correction--;
+                correction -= 2;
             } else {
                 break;
             }
         }
+        // cout << "correction end" << endl;
         return correction;
     }
 
     inline void Apply(const Action& action, const int n_colors,
                       const Action& last_action) {
+        // cout << "start apply" << endl;
         auto score_diff =
             unit_globe.ComputeScoreAffectedBy(action.facelet_changes, n_colors);
         unit_globe.Rotate(action.facelet_changes);
@@ -829,7 +832,14 @@ template <int width> struct State {
                      score_diff;
         score += score_diff;
         n_moves += (int)action.formula.unit_moves.size();
+        // cout << "start correction" << endl;
         n_moves += CostCorrection(last_action, action);
+        // cout << "end correction" << endl;
+        // cout << "end apply" << endl;
+        if (n_moves < 0) {
+            n_moves = 0; // TODO: fix this if possible. modify past actions dynamically not to remove the same action twice
+            // assert(n_moves >= 0);
+        }
     }
 };
 
@@ -892,6 +902,8 @@ template <int width> struct BeamSearchSolver {
                 for (const auto& action : action_candidate_generator.actions) {
                     auto new_state = node->state;
                     new_state.Apply(action, n_colors, node->last_action);
+                    if (new_state.n_moves <= current_cost)
+                        continue;
                     if (new_state.n_moves >= (int)nodes.size())
                         nodes.resize(new_state.n_moves + 1);
                     if ((int)nodes[new_state.n_moves].size() < beam_width) {
