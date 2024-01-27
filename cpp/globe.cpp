@@ -874,13 +874,14 @@ template <int width> struct BeamSearchSolver {
     int n_colors;
     int beam_width;
     int n_threads;
+    int step_size;
     ActionCandidateGenerator action_candidate_generator;
     vector<vector<shared_ptr<Node>>> nodes;
 
     inline BeamSearchSolver(const int n_colors, const int beam_width,
                             const string& formula_filename,
                             const bool is_normal, const int n_threads = 16)
-        : n_colors(n_colors), beam_width(beam_width), n_threads(n_threads),
+        : n_colors(n_colors), beam_width(beam_width), n_threads(n_threads), step_size(is_normal ? 1 : 2),
           action_candidate_generator(formula_filename, is_normal), nodes() {}
 
     inline shared_ptr<Node> Solve(const UnitGlobe& initial_unit_globe) {
@@ -916,7 +917,8 @@ template <int width> struct BeamSearchSolver {
 
         auto minimum_scores = array<int, 32>();
         fill(minimum_scores.begin(), minimum_scores.end(), 9999);
-        for (auto current_cost = 0; current_cost < 10000; current_cost++) {
+        
+        for (auto current_cost = 0; current_cost < 10000; current_cost += step_size) {
             auto current_minimum_score = 9999;
             if (n_threads == 1) {
                 for (const auto& node : nodes[current_cost]) {
@@ -981,7 +983,7 @@ template <int width> struct BeamSearchSolver {
                 for (int ith = 0; ith < n_threads; ++ith) {
                     for (int k = 0; k < beam_width; ++k) {
                         // for (int c = current_cost + 1; c <= current_cost + max_action_cost; ++c) {
-                        for (int c = current_cost + 1; c <= current_cost + 1; ++c) {
+                        for (int c = current_cost + 1; c <= current_cost + 2; ++c) {
                             if (nodes_thread[ith][c][k]->state.score < nodes[c][k]->state.score)
                                 nodes[c][k] = nodes_thread[ith][c][k];
                         }
