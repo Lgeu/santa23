@@ -1096,10 +1096,14 @@ template <int order>
 static void SolveWithOrder(const int problem_id, const bool is_normal,
                            const Formula& sample_formula) {
     constexpr auto beam_width = 32;
-    constexpr auto formula_depth = 8;
-    const auto formula_file =
-        format("out/edge_formula_{}_{}_{}.txt",
-               is_normal ? "normal" : "rainbow", order, formula_depth);
+    const auto formula_max_cost = 90;
+    const auto formula_max_depth = 7;
+    const auto formula_max_depth_2 = 7;
+    const auto formula_max_conjugal_depth = 6;
+    const auto formula_file = format(
+        "out/edge_formula_{}_{}_{}_{}_{}_{}.txt",
+        is_normal ? "normal" : "rainbow", order, formula_max_cost,
+        formula_max_depth, formula_max_depth_2, formula_max_conjugal_depth);
 
     // 面ソルバの出力を読み込む
     const auto face_solution_file =
@@ -1210,9 +1214,9 @@ static void SolveWithOrder(const int problem_id, const bool is_normal,
         solution.Print(ofs_all);
         ofs_all << endl
                 << format("face_solution_score={} edge_solution_score={} "
-                          "beam_width={} formula_depth={}",
+                          "beam_width={} formula_file={}",
                           face_solution.Cost(), solution.Cost(), beam_width,
-                          formula_depth)
+                          formula_file)
                 << endl;
         ofs_all.close();
     } else {
