@@ -9,6 +9,7 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <unordered_set>
 #include <vector>
 
@@ -21,11 +22,13 @@ using std::ifstream;
 using std::istringstream;
 using std::make_shared;
 using std::min;
+using std::move;
 using std::ofstream;
 using std::ostream;
 using std::shared_ptr;
 using std::string;
 using std::swap;
+using std::thread;
 using std::unordered_set;
 using std::vector;
 using ios = std::ios;
@@ -806,7 +809,7 @@ template <int width> struct State {
             return 0;
         int n_last_actions = ssize(last_action.formula.unit_moves);
         int n_min_actions =
-            std::max(n_last_actions, (int) action.formula.unit_moves.size());
+            std::max(n_last_actions, (int)action.formula.unit_moves.size());
         int correction = 0;
         // cout << n_min_actions << endl;
         for (int i = 0; i < n_min_actions; i++) {
@@ -837,7 +840,8 @@ template <int width> struct State {
         // cout << "end correction" << endl;
         // cout << "end apply" << endl;
         if (n_moves < 0) {
-            n_moves = 0; // TODO: fix this if possible. modify past actions dynamically not to remove the same action twice
+            n_moves = 0; // TODO: fix this if possible. modify past actions
+                         // dynamically not to remove the same action twice
             // assert(n_moves >= 0);
         }
     }
@@ -869,52 +873,118 @@ template <int width> struct BeamSearchSolver {
 
     int n_colors;
     int beam_width;
+    int n_threads;
     ActionCandidateGenerator action_candidate_generator;
     vector<vector<shared_ptr<Node>>> nodes;
 
     inline BeamSearchSolver(const int n_colors, const int beam_width,
                             const string& formula_filename,
-                            const bool is_normal)
-        : n_colors(n_colors), beam_width(beam_width),
+                            const bool is_normal, const int n_threads = 16)
+        : n_colors(n_colors), beam_width(beam_width), n_threads(n_threads),
           action_candidate_generator(formula_filename, is_normal), nodes() {}
 
     inline shared_ptr<Node> Solve(const UnitGlobe& initial_unit_globe) {
         auto timer = Timer();
-        auto rng = RandomNumberGenerator(42);
+        vector<RandomNumberGenerator> rngs;
+        for (int i = 0; i < n_threads; ++i)
+            rngs.emplace_back(RandomNumberGenerator(42 + i));
+        // auto rngs = RandomNumberGenerator(42);
+
+        assert(n_threads >= 1);
+        assert(beam_width % n_threads == 0); // for simplicity
         const auto initial_state = State(initial_unit_globe, n_colors);
         const auto initial_node =
             make_shared<Node>(initial_state, nullptr, Action<width>({}));
         nodes.clear();
-        nodes.push_back({initial_node});
+        [[maybe_unused]] int max_action_cost = 0;
+        vector<vector<vector<shared_ptr<Node>>>> nodes_thread;
+        if (n_threads == 1) {
+            nodes.push_back({initial_node});
+        } else {
+            // largest case (width=33) can be solved within ~800
+            constexpr int estimated_max_cost = 1500;
+            nodes.resize(estimated_max_cost,
+                         vector<shared_ptr<Node>>(beam_width, initial_node));
+            for (auto const& action : action_candidate_generator.actions)
+                max_action_cost = std::max(
+                    estimated_max_cost, (int)action.formula.unit_moves.size());
+            nodes_thread.resize(
+                n_threads, vector<vector<shared_ptr<Node>>>(
+                               estimated_max_cost, vector<shared_ptr<Node>>(
+                                                    beam_width, initial_node)));
+        }
 
         auto minimum_scores = array<int, 32>();
         fill(minimum_scores.begin(), minimum_scores.end(), 9999);
         for (auto current_cost = 0; current_cost < 10000; current_cost++) {
             auto current_minimum_score = 9999;
-            for (const auto& node : nodes[current_cost]) {
-                current_minimum_score =
-                    min(current_minimum_score, node->state.score);
-                if (node->state.score == 0) {
-                    cout << "Unit solved!" << endl;
-                    timer.Print();
-                    return node;
-                }
-                for (const auto& action : action_candidate_generator.actions) {
-                    auto new_state = node->state;
-                    new_state.Apply(action, n_colors, node->last_action);
-                    if (new_state.n_moves <= current_cost)
-                        continue;
-                    if (new_state.n_moves >= (int)nodes.size())
-                        nodes.resize(new_state.n_moves + 1);
-                    if ((int)nodes[new_state.n_moves].size() < beam_width) {
-                        nodes[new_state.n_moves].emplace_back(
-                            new Node(new_state, node, action));
-                    } else {
-                        const auto idx = rng.Next() % beam_width;
-                        if (new_state.score <
-                            nodes[new_state.n_moves][idx]->state.score)
-                            nodes[new_state.n_moves][idx].reset(
+            if (n_threads == 1) {
+                for (const auto& node : nodes[current_cost]) {
+                    current_minimum_score =
+                        min(current_minimum_score, node->state.score);
+                    if (node->state.score == 0) {
+                        cout << "Unit solved!" << endl;
+                        timer.Print();
+                        return node;
+                    }
+                    for (const auto& action :
+                        action_candidate_generator.actions) {
+                        auto new_state = node->state;
+                        new_state.Apply(action, n_colors, node->last_action);
+                        if (new_state.n_moves <= current_cost)
+                            continue;
+                        if (new_state.n_moves >= (int)nodes.size())
+                            nodes.resize(new_state.n_moves + 1);
+                        if ((int)nodes[new_state.n_moves].size() < beam_width) {
+                            nodes[new_state.n_moves].emplace_back(
                                 new Node(new_state, node, action));
+                        } else {
+                            const auto idx = rngs[0].Next() % beam_width;
+                            if (new_state.score <
+                                nodes[new_state.n_moves][idx]->state.score)
+                                nodes[new_state.n_moves][idx].reset(
+                                    new Node(new_state, node, action));
+                        }
+                    }
+                }
+            } else {
+                vector<thread> threads;
+                for (const auto& node: nodes[current_cost]) {
+                    current_minimum_score =
+                        min(current_minimum_score, node->state.score);
+                    if (node->state.score == 0) {
+                        cout << "Unit solved!" << endl;
+                        timer.Print();
+                        return node;
+                    }
+                }
+                for (int ith = 0; ith < n_threads; ++ith) {
+                    thread th([&](int ii){
+                        for (int k = ii; k < beam_width; k += n_threads) {
+                            for (const auto& action: action_candidate_generator.actions) {
+                                auto new_state = nodes[current_cost][k]->state;
+                                new_state.Apply(action, n_colors, nodes[current_cost][k]->last_action);
+                                if (new_state.n_moves <= current_cost)
+                                    continue;
+                                const auto idx = rngs[ii].Next() % beam_width;
+                                if (new_state.score <
+                                    nodes_thread[ii][new_state.n_moves][idx]->state.score)
+                                    nodes_thread[ii][new_state.n_moves][idx].reset(
+                                        new Node(new_state, nodes[current_cost][k], action));
+                            }
+                        }
+                    }, ith);
+                    threads.emplace_back(move(th));
+                }
+                for (auto& th: threads)
+                    th.join();
+                for (int ith = 0; ith < n_threads; ++ith) {
+                    for (int k = 0; k < beam_width; ++k) {
+                        // for (int c = current_cost + 1; c <= current_cost + max_action_cost; ++c) {
+                        for (int c = current_cost + 1; c <= current_cost + 1; ++c) {
+                            if (nodes_thread[ith][c][k]->state.score < nodes[c][k]->state.score)
+                                nodes[c][k] = nodes_thread[ith][c][k];
+                        }
                     }
                 }
             }
@@ -1177,8 +1247,8 @@ vector<Move> MergeResultMoves(vector<Move> const& result_moves1,
             }
         }
     }
-    cout << "LCS: " << dp[ssize(depth_change[0])][ssize(depth_change[1])]
-         << endl;
+    auto lcs = dp[ssize(depth_change[0])][ssize(depth_change[1])];
+    cout << "LCS: " << lcs << endl;
 
     // vector<vector<int>> merged_depth;
     vector<std::pair<Depth, int>> fs;
@@ -1273,7 +1343,15 @@ vector<Move> MergeResultMoves(vector<Move> const& result_moves1,
         }
         assert(ok);
     }
+    while (idx0 < ssize(result_moves_by_unit[0])) {
+        merged_moves.push_back(result_moves_by_unit[0][idx0++]);
+    }
+    while (idx1 < ssize(result_moves_by_unit[1])) {
+        merged_moves.push_back(result_moves_by_unit[1][idx1++]);
+    }
     cout << "merged_moves: " << ssize(merged_moves) << endl;
+    assert(ssize(merged_moves) == ssize(result_moves_by_unit[0]) +
+                                      ssize(result_moves_by_unit[1]) - lcs);
     // Formula(merged_moves).Print<8>();
     // cout << endl;
 
@@ -1283,7 +1361,7 @@ vector<Move> MergeResultMoves(vector<Move> const& result_moves1,
 template <int n, int m>
 void Solve(const Problem& problem, const int beam_width = 2,
            const int max_cost = 56, const int max_depth = 10,
-           const int max_conjugate_depth = 4) {
+           const int max_conjugate_depth = 4, const int n_threads = 1) {
     const auto formula_file = format("out/globe_formula_{}_{}_{}_{}.txt", m,
                                      max_cost, max_depth, max_conjugate_depth);
     constexpr auto height = n + 1;
@@ -1348,7 +1426,7 @@ void Solve(const Problem& problem, const int beam_width = 2,
     // 赤道以外をビームサーチで揃える
     // auto n_pre_rotations = (int)result_moves.size();
     auto solver = BeamSearchSolver<width>(n_colors, beam_width, formula_file,
-                                          problem.is_normal);
+                                          problem.is_normal, n_threads);
     auto result_moves_by_unit = vector<vector<Move>>(globe.units.size());
     for (auto unit_id = 0; unit_id < (int)globe.units.size(); unit_id++) {
         cout << format("Solving unit {}/{}...", unit_id + 1,
@@ -1433,38 +1511,38 @@ void Solve(const Problem& problem, const int beam_width = 2,
 
 [[maybe_unused]] static void
 Solve(const int problem_id, const int beam_width = 2, const int max_cost = 56,
-      const int max_depth = 10, const int max_conjugate_depth = 4) {
+      const int max_depth = 10, const int max_conjugate_depth = 4, const int n_threads = 1) {
     const auto filename_puzzles = "../input/puzzles.csv";
     const auto filename_sample = "../input/sample_submission.csv";
     const auto problem =
         ReadKaggleInput(filename_puzzles, filename_sample, problem_id);
     if (problem.n == 1 && problem.m == 8)
         Solve<1, 8>(problem, beam_width, max_cost, max_depth,
-                    max_conjugate_depth);
+                    max_conjugate_depth, n_threads);
     else if (problem.n == 1 && problem.m == 16)
         Solve<1, 16>(problem, beam_width, max_cost, max_depth,
-                     max_conjugate_depth);
+                     max_conjugate_depth, n_threads);
     else if (problem.n == 2 && problem.m == 6)
         Solve<2, 6>(problem, beam_width, max_cost, max_depth,
-                    max_conjugate_depth);
+                    max_conjugate_depth, n_threads);
     else if (problem.n == 3 && problem.m == 4)
         Solve<3, 4>(problem, beam_width, max_cost, max_depth,
-                    max_conjugate_depth);
+                    max_conjugate_depth, n_threads);
     else if (problem.n == 6 && problem.m == 4)
         Solve<6, 4>(problem, beam_width, max_cost, max_depth,
-                    max_conjugate_depth);
+                    max_conjugate_depth, n_threads);
     else if (problem.n == 6 && problem.m == 8)
         Solve<6, 8>(problem, beam_width, max_cost, max_depth,
-                    max_conjugate_depth);
+                    max_conjugate_depth, n_threads);
     else if (problem.n == 6 && problem.m == 10)
         Solve<6, 10>(problem, beam_width, max_cost, max_depth,
-                     max_conjugate_depth);
+                     max_conjugate_depth, n_threads);
     else if (problem.n == 3 && problem.m == 33)
         Solve<3, 33>(problem, beam_width, max_cost, max_depth,
-                     max_conjugate_depth);
+                     max_conjugate_depth, n_threads);
     else if (problem.n == 8 && problem.m == 25)
         Solve<8, 25>(problem, beam_width, max_cost, max_depth,
-                     max_conjugate_depth);
+                     max_conjugate_depth, n_threads);
     else {
         cout << format("n = {}, m = {} is not supported", problem.n, problem.m)
              << endl;
@@ -1513,7 +1591,7 @@ int main(const int argc, const char* const* const argv) {
     if (argc < 2) {
         cout << "Usage: " << argv[0]
              << " problem_id [beam_width] [max_cost] [max_depth] "
-                "[max_conjugate_depth]"
+                "[max_conjugate_depth] [n_threads]"
              << endl;
         return 1;
     }
@@ -1534,10 +1612,14 @@ int main(const int argc, const char* const* const argv) {
         Solve(atoi(argv[1]), atoi(argv[2]), atoi(argv[3]), atoi(argv[4]),
               atoi(argv[5]));
         break;
+    case 7:
+        Solve(atoi(argv[1]), atoi(argv[2]), atoi(argv[3]), atoi(argv[4]),
+              atoi(argv[5]), atoi(argv[6]));
+        break;
     default:
         cout << "Usage: " << argv[0]
              << " problem_id [beam_width] [max_cost] [max_depth] "
-                "[max_conjugate_depth]"
+                "[max_conjugate_depth] [n_threads]"
              << endl;
     }
 }
