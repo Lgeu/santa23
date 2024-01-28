@@ -1603,6 +1603,23 @@ void Solve(const Problem& problem, const int beam_width = 2,
     }
 
     cout << "merge moves" << endl;
+    // merge moves before merging results - there might be bug in MergeResultMoves
+    const auto temp_solutions_file =
+        format("solution_globe/{}_temp.txt", problem.problem_id);
+    auto ofs_temp = ofstream(temp_solutions_file, ios::app);
+    if (ofs_temp.good()) {
+        for (auto const& moves: result_moves_by_unit) {
+            ofs_temp << ssize(moves) << " ";
+        }
+        ofs_temp << endl;
+        for (auto const& moves: result_moves_by_unit) {
+            const auto temp_solution = Formula(moves);
+            temp_solution.template Print<height>(ofs_temp);
+            ofs_temp << endl;
+        }
+    } else
+        cout << "Failed to open " << temp_solutions_file << endl;
+
     for (auto& moves : result_moves_by_unit) {
         result_moves = MergeResultMoves(result_moves, moves);
         // result_moves.insert(result_moves.end(), moves.begin(),
