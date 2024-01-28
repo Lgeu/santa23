@@ -1421,7 +1421,7 @@ template <int order> struct FaceBeamSearchSolver {
         vector<RandomNumberGenerator> rngs;
         if (n_threads >= 2) {
             for (int i = 0; i < n_threads; i++) {
-                rngs.emplace_back(RandomNumberGenerator(i));
+                rngs.emplace_back(RandomNumberGenerator(42 + i));
             }
         }
 
