@@ -10,6 +10,7 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -29,6 +30,7 @@ using std::shared_ptr;
 using std::string;
 using std::swap;
 using std::thread;
+using std::unordered_map;
 using std::unordered_set;
 using std::vector;
 using ios = std::ios;
@@ -48,6 +50,7 @@ struct Timer {
             1000;
         return "elapsed time: " + std::to_string(elapsed);
     }
+    inline void Reset() { start = std::chrono::system_clock::now(); }
     inline void Print(ostream& os = cout) const {
         int elapsed =
             (int)(std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -464,26 +467,31 @@ template <int width> struct GlobeFormulaSearcher {
         max_cost = max_cost_;
         max_depth = max_depth_;
         results.clear();
+        Timer timer;
 
         // DFS で探索する
         cout << "Searching..." << endl;
         Dfs();
-        cout << format("Done. {} formulas found.", results.size()) << endl;
+        cout << format("Done. {} formulas found. {}", results.size(), timer())
+             << endl;
 
         // 重複を削除する
         cout << "Removing duplicates..." << endl;
         RemoveDuplicates();
-        cout << format("Done. {} formulas left.", results.size()) << endl;
+        cout << format("Done. {} formulas left. {}", results.size(), timer())
+             << endl;
 
         // 最初の Flip を全通りにする
         cout << "Augmenting (flip / slide)..." << endl;
         AugmentFirstFlipRotation();
-        cout << format("Done. {} formulas found.", results.size()) << endl;
+        cout << format("Done. {} formulas found. {}", results.size(), timer())
+             << endl;
 
         // 重複を削除する
         cout << "Removing duplicates..." << endl;
         RemoveDuplicates(true);
-        cout << format("Done. {} formulas left.", results.size()) << endl;
+        cout << format("Done. {} formulas left. {}", results.size(), timer())
+             << endl;
 
         auto n_results = results.size();
         for (auto i = 0; i < max_conjugate_depth; i++) {
@@ -492,12 +500,16 @@ template <int width> struct GlobeFormulaSearcher {
                            max_conjugate_depth)
                  << endl;
             AugmentConjugate();
-            cout << format("Done. {} formulas found.", results.size()) << endl;
+            cout << format("Done. {} formulas found. {}", results.size(),
+                           timer())
+                 << endl;
 
             // 重複を削除する
             cout << "Removing duplicates..." << endl;
             RemoveDuplicates(true);
-            cout << format("Done. {} formulas left.", results.size()) << endl;
+            cout << format("Done. {} formulas left. {}", results.size(),
+                           timer())
+                 << endl;
 
             if (results.size() == n_results) {
                 cout << "No more conjugate augmentation." << endl;
@@ -550,7 +562,8 @@ template <int width> struct GlobeFormulaSearcher {
         const auto can_decrease =
             depth >= 2 && flip_depth >= 1 && flip_depth <= max_depth - depth;
         // ここで width / 2 にしていいかは結構非自明っぽいが多分大丈夫
-        for (auto i = 0; i < width / 2; i++) {
+        // for (auto i = 0; i < width / 2; i++) {
+        for (auto i = 0; i < width; i++) {
             // 最初の Flip は 0 で固定して、後で回す
             if (n_total_flips == 0 && i != 0)
                 break;
@@ -712,28 +725,113 @@ template <int width> struct GlobeFormulaSearcher {
     inline void AugmentConjugate() {
         const auto original_results_size = (int)results.size();
         results.reserve(original_results_size * (width / 2 + 5));
-        // Flip で挟む
-        for (auto i = 0; i < width / 2; i++) {
-            const auto mov = UnitMove(UnitMove::Direction::F, i);
-            for (auto idx_results = 0; idx_results < original_results_size;
-                 idx_results++) {
-                auto formula = results[idx_results];
-                formula.unit_moves.insert(formula.unit_moves.begin(), mov);
-                formula.unit_moves.push_back(mov);
-                results.push_back(formula);
+
+        constexpr bool removing_duplicates = true;
+        if constexpr (removing_duplicates) {
+            assert(unit_globe == UnitGlobe(width * 2));
+            vector<UnitMove> unit_moves_aug;
+            for (auto i = 0; i < width; i++) {
+                unit_moves_aug.push_back(UnitMove(UnitMove::Direction::F, i));
             }
-        }
-        // Rotation で挟む
-        for (const auto mov : {UnitMove(UnitMove::Direction::R, 0),
-                               UnitMove(UnitMove::Direction::R, 1),
-                               UnitMove(UnitMove::Direction::Rp, 0),
-                               UnitMove(UnitMove::Direction::Rp, 1)}) {
+            unit_moves_aug.push_back(UnitMove(UnitMove::Direction::R, 0));
+            unit_moves_aug.push_back(UnitMove(UnitMove::Direction::R, 1));
+            unit_moves_aug.push_back(UnitMove(UnitMove::Direction::Rp, 0));
+            unit_moves_aug.push_back(UnitMove(UnitMove::Direction::Rp, 1));
+
+            auto found_permutations =
+                unordered_set<UnitGlobe, typename UnitGlobe::Hash>();
             for (auto idx_results = 0; idx_results < original_results_size;
                  idx_results++) {
-                auto formula = results[idx_results];
-                formula.unit_moves.insert(formula.unit_moves.begin(), mov);
-                formula.unit_moves.push_back(mov.Inv());
-                results.push_back(formula);
+                const auto formula = results[idx_results];
+                // 実際に手筋を使って回転させる
+                auto tmp_globe_beforeaug = unit_globe;
+                tmp_globe_beforeaug.Rotate(formula);
+                found_permutations.insert(tmp_globe_beforeaug);
+
+                // A と A' で挟んで水増しする
+                // for (auto i = 0; i < width / 2; i++) {
+                for (auto const& move_aug : unit_moves_aug) {
+                    auto tmp_formula = results[idx_results];
+                    tmp_formula.unit_moves.insert(
+                        tmp_formula.unit_moves.begin(), move_aug);
+                    tmp_formula.unit_moves.push_back(move_aug.Inv());
+
+                    auto tmp_globe = unit_globe;
+                    tmp_globe.Rotate(tmp_formula);
+                    auto n_changes = 0;
+                    for (auto i = 0; i < width * 2; i++)
+                        if (tmp_globe.facelets[i / width][i % width].data != i)
+                            n_changes++;
+                    if (n_changes == 0 ||
+                        n_changes * (int)tmp_formula.unit_moves.size() > max_cost)
+                        continue;
+
+                    // auto tmp_globe_before = unit_globe;
+                    // auto tmp_globe = tmp_globe_beforeaug;
+                    // tmp_globe_before.Rotate(move_aug.Inv());
+                    // tmp_globe.Rotate(move_aug.Inv());
+
+                    // // 変化がないか多すぎるなら削除する
+                    // auto n_changes = 0;
+                    // for (auto i = 0; i < width * 2; i++)
+                    //     if (tmp_globe_before.facelets[i / width][i % width]
+                    //             .data !=
+                    //         tmp_globe.facelets[i / width][i % width].data)
+                    //         n_changes++;
+                    // if (n_changes == 0 ||
+                    //     n_changes * (2 + (int)tmp_formula.unit_moves.size()) >
+                    //         max_cost)
+                    //     continue;
+                    // // 重複があるなら削除する
+                    // unordered_map<u8, u8> facelet_changes;
+                    // for (auto i = 0; i < width * 2; i++)
+                    //     if (tmp_globe_before.facelets[i / width][i % width]
+                    //             .data != i)
+                    //         facelet_changes[i] =
+                    //             tmp_globe_before.facelets[i / width][i % width]
+                    //                 .data;
+                    // for (auto i = 0; i < width * 2; i++)
+                    //     if (facelet_changes.contains(
+                    //             tmp_globe.facelets[i / width][i % width].data))
+                    //         tmp_globe.facelets[i / width][i % width]
+                    //             .data = facelet_changes
+                    //             [tmp_globe.facelets[i / width][i % width].data];
+
+                    const auto [it, inserted] =
+                        found_permutations.insert(tmp_globe);
+                    if (inserted) {
+                        // tmp_formula.unit_moves.insert(
+                        //     tmp_formula.unit_moves.begin(), move_aug);
+                        // tmp_formula.unit_moves.push_back(move_aug.Inv());
+                        results.push_back(tmp_formula);
+                    }
+                }
+            }
+        } else {
+            // Flip で挟む
+            // for (auto i = 0; i < width / 2; i++) {
+            for (auto i = 0; i < width; i++) {
+                const auto mov = UnitMove(UnitMove::Direction::F, i);
+                for (auto idx_results = 0; idx_results < original_results_size;
+                     idx_results++) {
+                    auto formula = results[idx_results];
+                    formula.unit_moves.insert(formula.unit_moves.begin(), mov);
+                    formula.unit_moves.push_back(mov);
+                    results.push_back(formula);
+                }
+            }
+            // Rotation で挟む
+            for (const auto mov : {UnitMove(UnitMove::Direction::R, 0),
+                                   UnitMove(UnitMove::Direction::R, 1),
+                                   UnitMove(UnitMove::Direction::Rp, 0),
+                                   UnitMove(UnitMove::Direction::Rp, 1)}) {
+                for (auto idx_results = 0; idx_results < original_results_size;
+                     idx_results++) {
+                    auto formula = results[idx_results];
+                    formula.unit_moves.insert(formula.unit_moves.begin(), mov);
+                    formula.unit_moves.push_back(mov.Inv());
+                    results.push_back(formula);
+                }
             }
         }
     }
@@ -817,14 +915,15 @@ template <int width> struct State {
     // this function calculate score correction by concatenating actions
     // actions itself will need to be corrected after path restoration
     inline static int CostCorrection(const Action& last_action,
-                                     const Action& action, const u8& last_correction) {
+                                     const Action& action,
+                                     const u8& last_correction) {
         if (last_action.formula.unit_moves.empty())
             return 0;
         int n_last_actions = ssize(last_action.formula.unit_moves);
         // last_correction = -2 * (removed moves)
         int n_remaining_last_actions = n_last_actions + last_correction / 2;
-        int n_min_actions =
-            std::max(n_remaining_last_actions, (int)action.formula.unit_moves.size());
+        int n_min_actions = std::max(n_remaining_last_actions,
+                                     (int)action.formula.unit_moves.size());
         int correction = 0;
         // cout << n_min_actions << endl;
         for (int i = 0; i < n_min_actions; i++) {
@@ -897,7 +996,8 @@ template <int width> struct BeamSearchSolver {
     inline BeamSearchSolver(const int n_colors, const int beam_width,
                             const string& formula_filename,
                             const bool is_normal, const int n_threads = 16)
-        : n_colors(n_colors), beam_width(beam_width), n_threads(n_threads), step_size(is_normal ? 1 : 2),
+        : n_colors(n_colors), beam_width(beam_width), n_threads(n_threads),
+          step_size(is_normal ? 1 : 2),
           action_candidate_generator(formula_filename, is_normal), nodes() {}
 
     inline shared_ptr<Node> Solve(const UnitGlobe& initial_unit_globe) {
@@ -925,16 +1025,17 @@ template <int width> struct BeamSearchSolver {
             for (auto const& action : action_candidate_generator.actions)
                 max_action_cost = std::max(
                     estimated_max_cost, (int)action.formula.unit_moves.size());
-            nodes_thread.resize(
-                n_threads, vector<vector<shared_ptr<Node>>>(
-                               estimated_max_cost, vector<shared_ptr<Node>>(
-                                                    beam_width, initial_node)));
+            nodes_thread.resize(n_threads, vector<vector<shared_ptr<Node>>>(
+                                               estimated_max_cost,
+                                               vector<shared_ptr<Node>>(
+                                                   beam_width, initial_node)));
         }
 
         auto minimum_scores = array<int, 32>();
         fill(minimum_scores.begin(), minimum_scores.end(), 9999);
-        
-        for (auto current_cost = 0; current_cost < 10000; current_cost += step_size) {
+
+        for (auto current_cost = 0; current_cost < 10000;
+             current_cost += step_size) {
             auto current_minimum_score = 9999;
             if (n_threads == 1) {
                 for (const auto& node : nodes[current_cost]) {
@@ -946,9 +1047,10 @@ template <int width> struct BeamSearchSolver {
                         return node;
                     }
                     for (const auto& action :
-                        action_candidate_generator.actions) {
+                         action_candidate_generator.actions) {
                         auto new_state = node->state;
-                        new_state.Apply(action, n_colors, node->last_action, node->state.correction);
+                        new_state.Apply(action, n_colors, node->last_action,
+                                        node->state.correction);
                         if (new_state.n_moves <= current_cost)
                             continue;
                         if (new_state.n_moves >= (int)nodes.size())
@@ -967,7 +1069,7 @@ template <int width> struct BeamSearchSolver {
                 }
             } else {
                 vector<thread> threads;
-                for (const auto& node: nodes[current_cost]) {
+                for (const auto& node : nodes[current_cost]) {
                     current_minimum_score =
                         min(current_minimum_score, node->state.score);
                     if (node->state.score == 0) {
@@ -977,30 +1079,46 @@ template <int width> struct BeamSearchSolver {
                     }
                 }
                 for (int ith = 0; ith < n_threads; ++ith) {
-                    thread th([&](int ii){
-                        for (int k = ii; k < beam_width; k += n_threads) {
-                            for (const auto& action: action_candidate_generator.actions) {
-                                auto new_state = nodes[current_cost][k]->state;
-                                new_state.Apply(action, n_colors, nodes[current_cost][k]->last_action, nodes[current_cost][k]->state.correction);
-                                if (new_state.n_moves <= current_cost)
-                                    continue;
-                                const auto idx = rngs[ii].Next() % beam_width;
-                                if (new_state.score <
-                                    nodes_thread[ii][new_state.n_moves][idx]->state.score)
-                                    nodes_thread[ii][new_state.n_moves][idx].reset(
-                                        new Node(new_state, nodes[current_cost][k], action));
+                    thread th(
+                        [&](int ii) {
+                            for (int k = ii; k < beam_width; k += n_threads) {
+                                for (const auto& action :
+                                     action_candidate_generator.actions) {
+                                    auto new_state =
+                                        nodes[current_cost][k]->state;
+                                    new_state.Apply(
+                                        action, n_colors,
+                                        nodes[current_cost][k]->last_action,
+                                        nodes[current_cost][k]
+                                            ->state.correction);
+                                    if (new_state.n_moves <= current_cost)
+                                        continue;
+                                    const auto idx =
+                                        rngs[ii].Next() % beam_width;
+                                    if (new_state.score <
+                                        nodes_thread[ii][new_state.n_moves][idx]
+                                            ->state.score)
+                                        nodes_thread[ii][new_state.n_moves][idx]
+                                            .reset(
+                                                new Node(new_state,
+                                                         nodes[current_cost][k],
+                                                         action));
+                                }
                             }
-                        }
-                    }, ith);
+                        },
+                        ith);
                     threads.emplace_back(move(th));
                 }
-                for (auto& th: threads)
+                for (auto& th : threads)
                     th.join();
                 for (int ith = 0; ith < n_threads; ++ith) {
                     for (int k = 0; k < beam_width; ++k) {
-                        // for (int c = current_cost + 1; c <= current_cost + max_action_cost; ++c) {
-                        for (int c = current_cost + 1; c <= current_cost + 2; ++c) {
-                            if (nodes_thread[ith][c][k]->state.score < nodes[c][k]->state.score)
+                        // for (int c = current_cost + 1; c <= current_cost
+                        // + max_action_cost; ++c) {
+                        for (int c = current_cost + 1; c <= current_cost + 2;
+                             ++c) {
+                            if (nodes_thread[ith][c][k]->state.score <
+                                nodes[c][k]->state.score)
                                 nodes[c][k] = nodes_thread[ith][c][k];
                         }
                     }
@@ -1206,8 +1324,6 @@ struct Problem {
     globe.Display();
 }
 
-
-
 vector<Move> MergeResultMoves(vector<Move> const& result_moves1,
                               vector<Move> const& result_moves2) {
     if (result_moves1.empty())
@@ -1260,8 +1376,8 @@ vector<Move> MergeResultMoves(vector<Move> const& result_moves1,
 
     // vector<vector<int>> merged_depth;
     vector<std::pair<Depth, int>> fs;
-    // merged_depth.push_back({-1}); // both should be in depth0 state at the
-    // end
+    // merged_depth.push_back({-1}); // both should be in depth0 state at
+    // the end
     int idx0 = ssize(depth_change[0]) - 1, idx1 = ssize(depth_change[1]) - 1;
     while (idx0 >= 0 || idx1 >= 0) {
         if (idx0 < 0) {
@@ -1298,8 +1414,8 @@ vector<Move> MergeResultMoves(vector<Move> const& result_moves1,
     idx0 = 0, idx1 = 0;
     Depth curr_depth0, curr_depth1;
     for (auto& [depth, f] : fs) {
-        // cout << "f: " << f << " idx0 " << idx0 << " idx1 " << idx1 << endl;
-        // for (auto& d: depth.depth) {
+        // cout << "f: " << f << " idx0 " << idx0 << " idx1 " << idx1 <<
+        // endl; for (auto& d: depth.depth) {
         //     cout << d << " ";
         // }
         // cout << endl;
@@ -1472,7 +1588,8 @@ void Solve(const Problem& problem, const int beam_width = 2,
     cout << "merge moves" << endl;
     for (auto& moves : result_moves_by_unit) {
         result_moves = MergeResultMoves(result_moves, moves);
-        // result_moves.insert(result_moves.end(), moves.begin(), moves.end());
+        // result_moves.insert(result_moves.end(), moves.begin(),
+        // moves.end());
         // // this replicates the original behavior (no merge)
     }
     // reverse(result_moves.begin() + n_pre_rotations, result_moves.end());
@@ -1519,7 +1636,8 @@ void Solve(const Problem& problem, const int beam_width = 2,
 
 [[maybe_unused]] static void
 Solve(const int problem_id, const int beam_width = 2, const int max_cost = 56,
-      const int max_depth = 10, const int max_conjugate_depth = 4, const int n_threads = 1) {
+      const int max_depth = 10, const int max_conjugate_depth = 4,
+      const int n_threads = 1) {
     const auto filename_puzzles = "../input/puzzles.csv";
     const auto filename_sample = "../input/sample_submission.csv";
     const auto problem =
