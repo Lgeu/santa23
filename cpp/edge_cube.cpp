@@ -1,6 +1,8 @@
 #include "cube.cpp"
 
+using std::max;
 using std::min;
+using std::swap;
 
 struct RawEdgeFacletPosition {
     i8 face_and_edge_id;
@@ -519,16 +521,16 @@ template <int order_, typename ColorType_ = ColorType48> struct EdgeCube {
             auto result = array<int, 48>();
             for (auto i = 0; i < 12; i++) {
                 const auto [facelet0, facelet1] = adjecent_edge_facelets[i];
-                const auto [edge_id_0, x_0] = facelet0;
-                const auto [edge_id_1, x_1] = facelet1;
+                const auto [face_id_0, edge_id_0] = facelet0;
+                const auto [face_id_1, edge_id_1] = facelet1;
                 const auto color0l =
-                    cube.faces[edge_id_0].facelets[x_0][kCL].data;
+                    cube.faces[face_id_0].facelets[edge_id_0][kCL].data;
                 const auto color0r =
-                    cube.faces[edge_id_0].facelets[x_0][kCR].data;
+                    cube.faces[face_id_0].facelets[edge_id_0][kCR].data;
                 const auto color1l =
-                    cube.faces[edge_id_1].facelets[x_1][kCL].data;
+                    cube.faces[face_id_1].facelets[edge_id_1][kCL].data;
                 const auto color1r =
-                    cube.faces[edge_id_1].facelets[x_1][kCR].data;
+                    cube.faces[face_id_1].facelets[edge_id_1][kCR].data;
                 result[color0l] = i;
                 result[color0r] = i;
                 result[color1l] = i;
@@ -540,9 +542,18 @@ template <int order_, typename ColorType_ = ColorType48> struct EdgeCube {
         array<int, 12> positions;
         for (auto i = 0; i < 12; i++) {
             const auto [facelet, _] = adjecent_edge_facelets[i];
-            const auto [edge_id, x] = facelet;
-            const auto color0 = faces[edge_id].facelets[x][kCL].data;
-            positions[i] = color_to_edge_position[color0];
+            const auto [face_id, edge_id] = facelet;
+            auto counts = array<i8, 24>();
+            auto most_popular_color_count = 0;
+            auto most_popular_color = (i8)-1;
+            for (auto x = 0; x < order - 2; x++) {
+                const auto color = faces[face_id].facelets[edge_id][x].data;
+                if (counts[color]++ == most_popular_color_count) {
+                    most_popular_color_count++;
+                    most_popular_color = color;
+                }
+            }
+            positions[i] = color_to_edge_position[most_popular_color];
         }
         // パリティ以前に、同じ色がある場合は true を返す
         auto tmp_positions = positions;
@@ -555,7 +566,7 @@ template <int order_, typename ColorType_ = ColorType48> struct EdgeCube {
         for (auto i = 0; i < 12; i++) {
             auto p = positions[i];
             while (i != p) {
-                std::swap(positions[i], positions[p]);
+                swap(positions[i], positions[p]);
                 parity = !parity;
                 p = positions[i];
             }
@@ -567,14 +578,49 @@ template <int order_, typename ColorType_ = ColorType48> struct EdgeCube {
     inline auto ComputeEdgeScore() const {
         // あれ、1 面 4 色でよかったんじゃ……
         auto score = 0;
-        for (auto face_id = 0; face_id < 6; face_id++)
-            for (auto edge_id = 0; edge_id < 4; edge_id++)
+        constexpr auto use_popular_color_metric = false; // true は不安定
+        for (const auto face_id : {0, 5})
+            for (auto edge_id = 0; edge_id < 4; edge_id++) {
+                if constexpr (use_popular_color_metric) {
+                auto counts = array<i8, 24>();
+                auto most_popular_color_count = 1;
                 for (auto x = 0; x < order - 2; x++)
-                    // これ偶数キューブでも動くのか？
+                    most_popular_color_count = max(
+                        most_popular_color_count,
+                            (int)++counts
+                                [faces[face_id].facelets[edge_id][x].data / 2]);
+                score += most_popular_color_count;
+                } else {
+                    for (auto x = 0; x < order - 2; x++)
+                        score += faces[face_id].facelets[edge_id][x].data / 2 !=
+                                 faces[face_id]
+                                         .facelets[edge_id][(order - 3) / 2]
+                                         .data /
+                                     2;
+                }
+            }
+        for (auto face_id = 1; face_id < 5; face_id++) {
+            const auto edge_id = 1;
+            if constexpr (use_popular_color_metric) {
+            auto counts = array<i8, 24>();
+            auto most_popular_color_count = 1;
+            for (auto x = 0; x < order - 2; x++)
+                    most_popular_color_count = max(
+                        most_popular_color_count,
+                        (int)++counts[faces[face_id].facelets[edge_id][x].data /
+                                      2]);
+            score += most_popular_color_count;
+            } else {
+                for (auto x = 0; x < order - 2; x++)
                     score +=
                         faces[face_id].facelets[edge_id][x].data / 2 !=
                         faces[face_id].facelets[edge_id][(order - 3) / 2].data /
                             2;
+            }
+        }
+        if constexpr (use_popular_color_metric)
+        score = 12 * (order - 2) - score;
+        score *= 2;
         if constexpr (order % 2 == 0)
             score += ComputePLLParity() * 100;
         return score;
