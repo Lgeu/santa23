@@ -562,8 +562,8 @@ template <int width> struct GlobeFormulaSearcher {
         const auto can_decrease =
             depth >= 2 && flip_depth >= 1 && flip_depth <= max_depth - depth;
         // ここで width / 2 にしていいかは結構非自明っぽいが多分大丈夫
-        // for (auto i = 0; i < width / 2; i++) {
-        for (auto i = 0; i < width; i++) {
+        for (auto i = 0; i < width / 2; i++) {
+            // for (auto i = 0; i < width; i++) {
             // 最初の Flip は 0 で固定して、後で回す
             if (n_total_flips == 0 && i != 0)
                 break;
@@ -730,7 +730,7 @@ template <int width> struct GlobeFormulaSearcher {
         if constexpr (removing_duplicates) {
             assert(unit_globe == UnitGlobe(width * 2));
             vector<UnitMove> unit_moves_aug;
-            for (auto i = 0; i < width; i++) {
+            for (auto i = 0; i < width / 2; i++) {
                 unit_moves_aug.push_back(UnitMove(UnitMove::Direction::F, i));
             }
             unit_moves_aug.push_back(UnitMove(UnitMove::Direction::R, 0));
@@ -763,7 +763,8 @@ template <int width> struct GlobeFormulaSearcher {
                         if (tmp_globe.facelets[i / width][i % width].data != i)
                             n_changes++;
                     if (n_changes == 0 ||
-                        n_changes * (int)tmp_formula.unit_moves.size() > max_cost)
+                        n_changes * (int)tmp_formula.unit_moves.size() >
+                            max_cost)
                         continue;
 
                     // auto tmp_globe_before = unit_globe;
@@ -779,7 +780,8 @@ template <int width> struct GlobeFormulaSearcher {
                     //         tmp_globe.facelets[i / width][i % width].data)
                     //         n_changes++;
                     // if (n_changes == 0 ||
-                    //     n_changes * (2 + (int)tmp_formula.unit_moves.size()) >
+                    //     n_changes * (2 + (int)tmp_formula.unit_moves.size())
+                    //     >
                     //         max_cost)
                     //     continue;
                     // // 重複があるなら削除する
@@ -788,14 +790,17 @@ template <int width> struct GlobeFormulaSearcher {
                     //     if (tmp_globe_before.facelets[i / width][i % width]
                     //             .data != i)
                     //         facelet_changes[i] =
-                    //             tmp_globe_before.facelets[i / width][i % width]
+                    //             tmp_globe_before.facelets[i / width][i %
+                    //             width]
                     //                 .data;
                     // for (auto i = 0; i < width * 2; i++)
                     //     if (facelet_changes.contains(
-                    //             tmp_globe.facelets[i / width][i % width].data))
+                    //             tmp_globe.facelets[i / width][i %
+                    //             width].data))
                     //         tmp_globe.facelets[i / width][i % width]
                     //             .data = facelet_changes
-                    //             [tmp_globe.facelets[i / width][i % width].data];
+                    //             [tmp_globe.facelets[i / width][i %
+                    //             width].data];
 
                     const auto [it, inserted] =
                         found_permutations.insert(tmp_globe);
@@ -1000,7 +1005,8 @@ template <int width> struct BeamSearchSolver {
           step_size(is_normal ? 1 : 2),
           action_candidate_generator(formula_filename, is_normal), nodes() {}
 
-    inline shared_ptr<Node> Solve(const UnitGlobe& initial_unit_globe) {
+    inline shared_ptr<Node> Solve(const UnitGlobe& initial_unit_globe,
+                                  const int& num_wildcards = 0) {
         auto timer = Timer();
         vector<RandomNumberGenerator> rngs;
         for (int i = 0; i < n_threads; ++i)
@@ -1072,7 +1078,7 @@ template <int width> struct BeamSearchSolver {
                 for (const auto& node : nodes[current_cost]) {
                     current_minimum_score =
                         min(current_minimum_score, node->state.score);
-                    if (node->state.score == 0) {
+                    if (node->state.score <= num_wildcards) {
                         cout << "Unit solved!" << endl;
                         timer.Print();
                         return node;
@@ -1225,6 +1231,7 @@ struct Problem {
     int n, m;
     bool is_normal;
     Formula sample_formula;
+    int num_wildcards;
 };
 
 [[maybe_unused]] static auto ReadKaggleInput(const string& filename_puzzles,
@@ -1251,7 +1258,7 @@ struct Problem {
         getline(ifs_sample, s_sample);
     }
 
-    string puzzle_type, s_sample_formula, solution_state;
+    string puzzle_type, s_sample_formula, solution_state, num_wildcards;
 
     auto iss_puzzles = istringstream(s_puzzles);
     auto iss_sample = istringstream(s_sample);
@@ -1272,12 +1279,17 @@ struct Problem {
     assert(stoi(token) == problem_id);
     getline(iss_sample, s_sample_formula, ',');
     const auto sample_formula = Formula(s_sample_formula, n + 1);
+    getline(iss_puzzles, token, ','); // discard initial_state
+    getline(iss_puzzles, num_wildcards, ',');
 
-    cout << format("problem_id: {}, n: {}, m: {}, is_normal: {}", problem_id, n,
-                   m, is_normal)
-         << endl;
+    cout
+        << format(
+               "problem_id: {}, n: {}, m: {}, is_normal: {}, num_wildcards: {}",
+               problem_id, n, m, is_normal, num_wildcards)
+        << endl;
 
-    return Problem{problem_id, n, m, is_normal, sample_formula};
+    return Problem{problem_id,         n, m, is_normal, sample_formula,
+                   stoi(num_wildcards)};
 };
 
 [[maybe_unused]] static auto GetNColors(const int n, const int m) {
@@ -1556,7 +1568,12 @@ void Solve(const Problem& problem, const int beam_width = 2,
         cout << format("Solving unit {}/{}...", unit_id + 1,
                        (int)globe.units.size())
              << endl;
-        const auto node = solver.Solve(globe.units[unit_id]);
+        auto num_wildcards_used =
+            problem.num_wildcards / 2 / (int)globe.units.size() * 2;
+        if (unit_id < problem.num_wildcards / 2 % (int)globe.units.size())
+            num_wildcards_used += 2;
+        const auto node =
+            solver.Solve(globe.units[unit_id], num_wildcards_used);
 
         // 結果を復元する
         for (auto p = node; p->parent != nullptr; p = p->parent) {
