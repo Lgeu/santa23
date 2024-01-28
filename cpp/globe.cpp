@@ -790,12 +790,25 @@ template <int width> struct ActionCandidateGenerator {
     }
 };
 
+struct Depth {
+    vector<int> depth;
+    inline Depth() : depth(1, -1){};
+    inline void Push(int d) {
+        if (depth.back() == d)
+            depth.pop_back();
+        else
+            depth.push_back(d);
+    }
+    bool operator==(const Depth& other) const { return depth == other.depth; }
+};
+
 template <int width> struct State {
     using UnitGlobe = ::UnitGlobe<width>;
     using Action = ::Action<width>;
     UnitGlobe unit_globe;
     int score;   // 目標との距離
     int n_moves; // これまでに回した回数
+    u8 correction; // 最後のactionにおけるコスト補正=消去するmoveの数
 
     inline State(const UnitGlobe& unit_globe, const int n_colors)
         : unit_globe(unit_globe), score(unit_globe.ComputeScore(n_colors)),
@@ -804,12 +817,14 @@ template <int width> struct State {
     // this function calculate score correction by concatenating actions
     // actions itself will need to be corrected after path restoration
     inline static int CostCorrection(const Action& last_action,
-                                     const Action& action) {
+                                     const Action& action, const u8& last_correction) {
         if (last_action.formula.unit_moves.empty())
             return 0;
         int n_last_actions = ssize(last_action.formula.unit_moves);
+        // last_correction = -2 * (removed moves)
+        int n_remaining_last_actions = n_last_actions + last_correction / 2;
         int n_min_actions =
-            std::max(n_last_actions, (int)action.formula.unit_moves.size());
+            std::max(n_remaining_last_actions, (int)action.formula.unit_moves.size());
         int correction = 0;
         // cout << n_min_actions << endl;
         for (int i = 0; i < n_min_actions; i++) {
@@ -825,7 +840,7 @@ template <int width> struct State {
     }
 
     inline void Apply(const Action& action, const int n_colors,
-                      const Action& last_action) {
+                      const Action& last_action, const u8& last_correction) {
         // cout << "start apply" << endl;
         auto score_diff =
             unit_globe.ComputeScoreAffectedBy(action.facelet_changes, n_colors);
@@ -836,7 +851,8 @@ template <int width> struct State {
         score += score_diff;
         n_moves += (int)action.formula.unit_moves.size();
         // cout << "start correction" << endl;
-        n_moves += CostCorrection(last_action, action);
+        correction = CostCorrection(last_action, action, last_correction);
+        n_moves += correction;
         // cout << "end correction" << endl;
         // cout << "end apply" << endl;
         if (n_moves < 0) {
@@ -932,7 +948,7 @@ template <int width> struct BeamSearchSolver {
                     for (const auto& action :
                         action_candidate_generator.actions) {
                         auto new_state = node->state;
-                        new_state.Apply(action, n_colors, node->last_action);
+                        new_state.Apply(action, n_colors, node->last_action, node->state.correction);
                         if (new_state.n_moves <= current_cost)
                             continue;
                         if (new_state.n_moves >= (int)nodes.size())
@@ -965,7 +981,7 @@ template <int width> struct BeamSearchSolver {
                         for (int k = ii; k < beam_width; k += n_threads) {
                             for (const auto& action: action_candidate_generator.actions) {
                                 auto new_state = nodes[current_cost][k]->state;
-                                new_state.Apply(action, n_colors, nodes[current_cost][k]->last_action);
+                                new_state.Apply(action, n_colors, nodes[current_cost][k]->last_action, nodes[current_cost][k]->state.correction);
                                 if (new_state.n_moves <= current_cost)
                                     continue;
                                 const auto idx = rngs[ii].Next() % beam_width;
@@ -1190,17 +1206,7 @@ struct Problem {
     globe.Display();
 }
 
-struct Depth {
-    vector<int> depth;
-    inline Depth() : depth(1, -1){};
-    inline void Push(int d) {
-        if (depth.back() == d)
-            depth.pop_back();
-        else
-            depth.push_back(d);
-    }
-    bool operator==(const Depth& other) const { return depth == other.depth; }
-};
+
 
 vector<Move> MergeResultMoves(vector<Move> const& result_moves1,
                               vector<Move> const& result_moves2) {
