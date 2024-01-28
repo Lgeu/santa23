@@ -1179,6 +1179,12 @@ template <int order> struct FaceActionCandidateGenerator {
 
 template <int order>
 void ConcatActionInline(FaceAction& all_action, const FaceAction& action) {
+    /* constexpr bool flag_check = true; */
+    /* FaceCube<order, ColorType24> cube; */
+    /* cube.Reset(); */
+    /* cube.Rotate(all_action); */
+    /* cube.Rotate(action); */
+
     // update all_action
     int idx_action = 0;
     const int n_action = (int)action.moves.size();
@@ -1212,9 +1218,9 @@ void ConcatActionInline(FaceAction& all_action, const FaceAction& action) {
             for (int i = 0; i < order; i++) {
                 auto& rot = cnt_move[i];
                 /* cerr << i << " " << int(rot) << endl; */
-                if (rot <= -2)
+                while (rot <= -2)
                     rot += 4;
-                else if (rot >= 3)
+                while (rot >= 3)
                     rot -= 4;
 
                 if (rot == -1) {
@@ -1234,6 +1240,24 @@ void ConcatActionInline(FaceAction& all_action, const FaceAction& action) {
             }
         }
     }
+
+    /* FaceCube<order, ColorType24> cube2; */
+    /* cube2.Reset(); */
+    /* cube2.Rotate(all_action); */
+    /* bool flag_same = true; */
+    /* for (int i = 0; i < 6; i++) { */
+    /*     for (int x = 0; x < order; x++) { */
+    /*         for (int y = 0; y < order; y++) { */
+    /*             if (cube.Get(i, y, x) != cube2.Get(i, y, x)) */
+    /*                 flag_same = false; */
+    /*         } */
+    /*     } */
+    /* } */
+    /* if (!flag_same) { */
+    /*     cube.Display(); */
+    /*     cube2.Display(); */
+    /*     exit(1); */
+    /* } */
 }
 
 template <int order> struct FaceNode {
@@ -1245,6 +1269,12 @@ template <int order> struct FaceNode {
     SliceMapInv slice_map_inv;
     bool flag_last_action_scale;
     FaceAction all_action;
+
+    array<i8, order> concat_cnt_move;
+    array<bool, order> concat_seen;
+    array<i8, order> concat_seen_list;
+    int concat_seen_idx;
+
     shared_ptr<FaceNode> CopyNode() {
         shared_ptr<FaceNode> node = make_shared<FaceNode>(
             state, parent, last_action, last_action_formula, slice_map,
@@ -1256,7 +1286,9 @@ template <int order> struct FaceNode {
                     const FaceAction& last_action_formula)
         : state(state), parent(parent), last_action(last_action),
           last_action_formula(last_action_formula), slice_map(),
-          slice_map_inv(), flag_last_action_scale(false), all_action() {}
+          slice_map_inv(), flag_last_action_scale(false), all_action(),
+          concat_cnt_move(), concat_seen(), concat_seen_list(),
+          concat_seen_idx(0) {}
     inline FaceNode(const FaceState& state, const shared_ptr<FaceNode>& parent,
                     const FaceAction& last_action,
                     const FaceAction& last_action_formula,
@@ -1266,7 +1298,8 @@ template <int order> struct FaceNode {
           last_action_formula(last_action_formula), slice_map(slice_map),
           slice_map_inv(slice_map_inv),
           flag_last_action_scale(flag_last_action_scale),
-          all_action(all_action) {}
+          all_action(all_action), concat_cnt_move(), concat_seen(),
+          concat_seen_list(), concat_seen_idx(0) {}
     FaceState CopyState() const { return state; }
     int CostCorrection(const FaceAction& action) {
         // 愚直
@@ -1292,36 +1325,51 @@ template <int order> struct FaceNode {
                 Move::Axis axis = all_action.moves[idx_all_action].GetAxis();
                 // 逐次追加
                 // 愚直にメモ
-                array<i8, order> cnt_move{};
+                assert(concat_seen_idx == 0);
                 // add action move
                 while (idx_action < n_action &&
                        axis == action.moves[idx_action].GetAxis()) {
                     const auto& mov = action.moves[idx_action++];
-                    cnt_move[mov.depth] += mov.IsClockWise() ? 1 : -1;
+                    concat_cnt_move[mov.depth] += mov.IsClockWise() ? 1 : -1;
                     correction--;
+
+                    // update seen list
+                    if (!concat_seen[mov.depth]) {
+                        concat_seen[mov.depth] = true;
+                        concat_seen_list[concat_seen_idx++] = mov.depth;
+                    }
                 }
                 // add all_action move
                 while (idx_all_action >= 0 &&
                        axis == all_action.moves[idx_all_action].GetAxis()) {
                     const auto& mov = all_action.moves[idx_all_action];
-                    cnt_move[mov.depth] += mov.IsClockWise() ? 1 : -1;
+                    concat_cnt_move[mov.depth] += mov.IsClockWise() ? 1 : -1;
                     idx_all_action--;
                     correction--;
+
+                    // update seen list
+                    if (!concat_seen[mov.depth]) {
+                        concat_seen[mov.depth] = true;
+                        concat_seen_list[concat_seen_idx++] = mov.depth;
+                    }
                 }
                 // all_action に追加
                 bool flag_all_zero = true;
-                for (int i = 0; i < order; i++) {
-                    auto& rot = cnt_move[i];
+                while (concat_seen_idx > 0) {
+                    const i8 depth = concat_seen_list[--concat_seen_idx];
+                    auto& rot = concat_cnt_move[depth];
                     /* cerr << i << " " << int(rot) << endl; */
-                    if (rot <= -2)
+                    while (rot <= -2)
                         rot += 4;
-                    else if (rot >= 3)
+                    while (rot >= 3)
                         rot -= 4;
 
                     if (rot != 0)
                         flag_all_zero = false;
 
                     correction += abs(rot);
+                    rot = 0;
+                    concat_seen[depth] = false;
                 }
                 if (!flag_all_zero)
                     break;
