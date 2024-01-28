@@ -1,45 +1,23 @@
-#include <unordered_set>
-
-#include "edge_cube.cpp"
-
-using std::unordered_set;
+#include "cube.cpp"
 
 template <int order> struct EdgeFormulaSearcher {
     static constexpr auto kMaxNInnerRotations = 3;
 
     using Cube = ::Cube<order, ColorType24>;
-    using EdgeCube = ::EdgeCube<order, ColorType48>;
     int max_depth;
     Cube start_cube;
 
     EdgeFormulaSearcher(const int max_depth)
-        : max_depth(max_depth), start_cube(), normal_results(),
-          rainbow_results(), depth(), cube(), move_history(),
-          inner_rotation_counts() {
+        : max_depth(max_depth), start_cube(), results(), depth(), cube(),
+          move_history(), inner_rotation_counts() {
         start_cube.Reset();
     }
 
     auto Search() {
-        normal_results.clear();
-        rainbow_results.clear();
+        results.clear();
         cube = start_cube;
-
-        // DFS で探索する
-        cout << "Searching..." << endl;
         Dfs();
-        cout << format("Done. {} + {} formulas found.", normal_results.size(),
-                       rainbow_results.size())
-             << endl;
-
-        // 重複を除去する
-        cout << "Removing duplicates..." << endl;
-        RemoveDuplicates(normal_results);
-        RemoveDuplicates(rainbow_results);
-        cout << format("Done. {} + {} formulas left.", normal_results.size(),
-                       rainbow_results.size())
-             << endl;
-
-        return make_tuple(normal_results, rainbow_results);
+        return results;
     }
 
     struct InnerRotationCounts {
@@ -65,11 +43,11 @@ template <int order> struct EdgeFormulaSearcher {
     };
 
     struct Result {
+        bool can_use_for_rainbow_cube;
         Formula formula;
     };
 
-    vector<Result> normal_results;
-    vector<Result> rainbow_results;
+    vector<Result> results;
     int depth;
     Cube cube;
     array<Move, 12> move_history;
@@ -135,9 +113,40 @@ template <int order> struct EdgeFormulaSearcher {
         if (valid >= 1) {
             const auto moves = vector<Move>(move_history.begin(),
                                             move_history.begin() + depth);
-            normal_results.push_back({Formula(moves)});
-            if (valid == 2)
-                rainbow_results.push_back({Formula(moves)});
+            auto facelet_changes_array =
+                array<Formula::FaceletChange, (Cube::order - 2) * 24>();
+            auto n_facelet_changes = 0;
+            for (auto face_id = 0; face_id < 6; face_id++) {
+                for (const auto y : {0, Cube::order - 1})
+                    for (auto x = 1; x < Cube::order - 1; x++) {
+                        const auto pos =
+                            FaceletPosition{(i8)face_id, (i8)y, (i8)x};
+                        const auto color = cube.Get(pos);
+                        const auto original_pos =
+                            Cube::ComputeOriginalFaceletPosition(y, x, color);
+                        if (pos != original_pos)
+                            facelet_changes_array[n_facelet_changes++] = {
+                                original_pos, pos};
+                    }
+                for (const auto x : {0, Cube::order - 1})
+                    for (auto y = 1; y < Cube::order - 1; y++) {
+                        const auto pos =
+                            FaceletPosition{(i8)face_id, (i8)y, (i8)x};
+                        const auto color = cube.Get(pos);
+                        const auto original_pos =
+                            Cube::ComputeOriginalFaceletPosition(y, x, color);
+                        if (pos != original_pos)
+                            facelet_changes_array[n_facelet_changes++] = {
+                                original_pos, pos};
+                    }
+            }
+            if (n_facelet_changes != 0) {
+                // cout << n_facelet_changes << endl;
+                const auto facelet_changes = vector<Formula::FaceletChange>(
+                    facelet_changes_array.begin(),
+                    facelet_changes_array.begin() + n_facelet_changes);
+                results.push_back({valid == 2, {moves, facelet_changes}});
+            }
         }
         if (depth == max_depth) {
             assert(inner_rotation_counts.distance_from_all_zero == 0);
@@ -235,61 +244,31 @@ template <int order> struct EdgeFormulaSearcher {
             }
         }
     }
-    inline auto RemoveDuplicates(vector<Result>& results) const {
-        sort(results.begin(), results.end(),
-             [](const Result& a, const Result& b) {
-                 if (a.formula.Cost() != b.formula.Cost())
-                     return a.formula.Cost() < b.formula.Cost();
-                 return a.formula.moves < b.formula.moves;
-             });
-        auto top = 0;
-        auto found_permutations =
-            unordered_set<EdgeCube, typename EdgeCube::Hash>();
-
-        auto ref_cube = EdgeCube();
-        ref_cube.Reset();
-        for (auto idx_results = 0; idx_results < (int)results.size();
-             idx_results++) {
-            const auto& result = results[idx_results];
-            auto tmp_cube = ref_cube;
-            tmp_cube.Rotate(result.formula);
-            auto n_changes = 0;
-            for (auto face_id = 0; face_id < 6; face_id++)
-                for (auto edge_id = 0; edge_id < 4; edge_id++)
-                    for (auto x = 0; x < order - 2; x++)
-                        if (tmp_cube.faces[face_id].facelets[edge_id][x] !=
-                            ref_cube.faces[face_id].facelets[edge_id][x])
-                            n_changes++;
-            if (n_changes == 0) // TODO
-                continue;
-            assert(!tmp_cube.corner_parity); // 使わない
-            auto [it, inserted] = found_permutations.insert(tmp_cube);
-            if (inserted)
-                results[top++] = result;
-        }
-        results.resize(top);
-    }
 };
 
 template <int order>
 static auto SearchEdgeFormulaWithOrder(const int max_depth) {
     auto searcher = EdgeFormulaSearcher<order>(max_depth);
-    const auto [normal_results, rainbow_results] = searcher.Search();
-    for (auto i = 0; i < 2; i++) {
-        const auto name = i == 0 ? "normal" : "rainbow";
-        const auto& results = i == 0 ? normal_results : rainbow_results;
-        const auto filename =
-            format("out/edge_formula_{}_{}_{}.txt", name, order, max_depth);
-        auto ofs = ofstream(filename);
-        if (!ofs.good()) {
-            cerr << format("Cannot open file `{}`.", filename) << endl;
-            abort();
+    const auto results = searcher.Search();
+    const auto filename =
+        format("out/edge_formula_{}_{}.txt", order, max_depth);
+    auto os = ofstream(filename);
+    if (!os.good()) {
+        cerr << format("Cannot open file `{}`.", filename) << endl;
+        abort();
+    }
+    os << "# Number of formulas: " << results.size() << endl;
+    for (const auto& [can_use_for_rainbow_cube, formula] : results) {
+        os << can_use_for_rainbow_cube << " ";
+        formula.Print(os);
+        // os << "  " << formula.facelet_changes.size();
+        if (0) {
+            for (const auto [from, to] : formula.facelet_changes)
+                os << format(" {}{}{}->{}{}{}", (int)from.face_id, (int)from.y,
+                             (int)from.x, (int)to.face_id, (int)to.y,
+                             (int)to.x);
         }
-        ofs << "# Number of formulas: " << results.size() << endl;
-        for (const auto& [formula] : results) {
-            formula.Print(ofs);
-            ofs << endl;
-        }
+        os << endl;
     }
 }
 
