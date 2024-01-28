@@ -1416,7 +1416,8 @@ template <int order> struct FaceBeamSearchSolver {
     }
 
     inline shared_ptr<FaceNode> Solve(const FaceCube& start_cube,
-                                      const int id = -1) {
+                                      const int id = -1,
+                                      const int wildcard = 0) {
         // auto rng = RandomNumberGenerator(42);
         vector<RandomNumberGenerator> rngs;
         if (n_threads >= 2) {
@@ -1504,7 +1505,8 @@ template <int order> struct FaceBeamSearchSolver {
                         break;
                     current_minimum_score =
                         min(current_minimum_score, node->state.score);
-                    if (node->state.score == 0) {
+                    /* if (node->state.score == 0) { */
+                    if (node->state.score <= wildcard) {
                         cerr << "Solved!" << endl;
                         // return node;
                         node_solved = node;
@@ -2052,6 +2054,7 @@ template <int order> struct FaceBeamSearchSolver {
     using FaceCube = typename Solver::FaceCube;
 
     int id = -1;
+    int wildcard = 0;
 
     auto initial_cube = FaceCube();
     if (0) {
@@ -2082,6 +2085,7 @@ template <int order> struct FaceBeamSearchSolver {
         string filename_sample = "../input/sample_submission.csv";
         auto [puzzle_size, is_normal, sample_formula] =
             ReadKaggleInput(filename_puzzles, filename_sample, id);
+        wildcard = ReadKaggleInputWildcard(filename_puzzles, id);
 
         assert(puzzle_size == kOrder);
         if (puzzle_size != kOrder) {
@@ -2125,7 +2129,7 @@ template <int order> struct FaceBeamSearchSolver {
 
     auto solver = Solver(target_cube, beam_width, formula_file, n_threads);
 
-    const auto node = solver.Solve(initial_cube, id);
+    const auto node = solver.Solve(initial_cube, id, wildcard);
     // if (node != nullptr) {
     //     cout << node->state.n_moves << endl;
     //     auto moves = vector<Move>();

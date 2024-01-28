@@ -158,21 +158,19 @@ struct Face {
     shared_ptr<RNT> rnt; // ハッシュ計算の乱数表
 
   public:
-    static inline auto MakeRNT(const u64 seed)
-        requires use_hash
-    {
+    static inline auto MakeRNT(const u64 seed) requires use_hash {
         return make_shared<RNT>(seed);
     }
 
     // 0 で初期化
-    inline Face()
-        requires(!use_hash)
+    inline Face() requires(!use_hash)
         : facelets(), orientation(), hash_value(), rnt() {}
 
     // 0 で初期化
-    inline Face(const RNT& rnt)
-        requires use_hash
-        : facelets(), orientation(), hash_value(), rnt(rnt) {
+    inline Face(const RNT& rnt) requires use_hash : facelets(),
+                                                    orientation(),
+                                                    hash_value(),
+                                                    rnt(rnt) {
         Fill(0);
     }
 
@@ -205,11 +203,15 @@ struct Face {
                     // DCC
                     const auto color = ColorType{
                         (i8)(start_color.data +
-                             (y < order / 2 && x < (order + 1) / 2          ? 0
-                              : y < (order + 1) / 2 && x >= (order + 1) / 2 ? 1
-                              : y >= (order + 1) / 2 && x >= order / 2      ? 2
-                              : y >= order / 2 && x < order / 2             ? 3
-                                                                : 0))};
+                             (y < order / 2 && x < (order + 1) / 2
+                                  ? 0
+                                  : y < (order + 1) / 2 && x >= (order + 1) / 2
+                                        ? 1
+                                        : y >= (order + 1) / 2 && x >= order / 2
+                                              ? 2
+                                              : y >= order / 2 && x < order / 2
+                                                    ? 3
+                                                    : 0))};
                     if constexpr (use_hash)
                         hash_value ^=
                             rnt->Get(((y * order) + x) * ColorType::kNColors +
@@ -302,11 +304,7 @@ struct Face {
         return facelets[y][x];
     }
 
-    inline auto Hash() const
-        requires use_hash
-    {
-        return hash_value;
-    }
+    inline auto Hash() const requires use_hash { return hash_value; }
 
     inline int GetOrientation() const { return orientation; }
 
@@ -440,19 +438,17 @@ struct FaceletPositionRaw {
 
 template <int order_, typename ColorType_> struct Cube;
 
-template <class T>
-concept Cubeish =
-    requires(T& x, Move mov, ostream os) {
-        x.Reset();
-        x.Rotate(mov);
-        x.Display();
-        x.Display(os);
-        T::AllFaceletPositions();
-        {
-            T::ComputeOriginalFaceletPosition(0, 0, typename T::ColorType())
-            } -> same_as<FaceletPosition>;
-        { T::order } -> same_as<const int&>;
-    };
+template <class T> concept Cubeish = requires(T& x, Move mov, ostream os) {
+    x.Reset();
+    x.Rotate(mov);
+    x.Display();
+    x.Display(os);
+    T::AllFaceletPositions();
+    { T::ComputeOriginalFaceletPosition(0, 0, typename T::ColorType()) }
+    ->same_as<FaceletPosition>;
+    { T::order }
+    ->same_as<const int&>;
+};
 
 // 手筋
 struct Formula {
@@ -1092,9 +1088,8 @@ template <int order_, typename ColorType_ = ColorType6> struct Cube {
     }
 
     // 面ソルバのフォーマットを読み取る
-    inline void ReadNNN(const string& filename)
-        requires is_same_v<ColorType, ColorType6>
-    {
+    inline void
+    ReadNNN(const string& filename) requires is_same_v<ColorType, ColorType6> {
         auto ifs = ifstream(filename, ios::binary);
         if (!ifs.good()) {
             cerr << format("Cannot open file `{}`.", filename) << endl;
@@ -1113,9 +1108,8 @@ template <int order_, typename ColorType_ = ColorType6> struct Cube {
     }
 
     // 面ソルバのフォーマットで書き出す
-    inline void WriteNNN(const string& filename)
-        requires is_same_v<ColorType, ColorType6>
-    {
+    inline void
+    WriteNNN(const string& filename) requires is_same_v<ColorType, ColorType6> {
         auto ofs = ofstream(filename, ios::binary);
         if (!ofs.good()) {
             cerr << format("Cannot open file `{}`.", filename) << endl;
@@ -1341,6 +1335,39 @@ tuple<int, bool, Formula> ReadKaggleInput(const string& filename_puzzles,
     // sample_formula.Print(cerr);
 
     return {puzzle_size, is_normal, sample_formula};
+}
+
+int ReadKaggleInputWildcard(const string& filename_puzzles, const int id) {
+    if (id < 0 || id > 284) {
+        cerr << "id must be in [0, 284]" << endl;
+        abort();
+    }
+
+    // id+1 行目を読む
+    auto ifs_puzzles = ifstream(filename_puzzles);
+    if (!ifs_puzzles.good()) {
+        cerr << format("Cannot open file `{}`.", filename_puzzles) << endl;
+        abort();
+    }
+    string s_puzzles;
+    for (auto i = 0; i <= id + 1; i++)
+        getline(ifs_puzzles, s_puzzles);
+
+    stringstream ss_puzzles(s_puzzles);
+    string token, s_wildcard;
+    getline(ss_puzzles, token, ',');
+    assert(stoi(token) == id);
+    if (stoi(token) != id) {
+        cerr << "id mismatch" << endl;
+        exit(1);
+    }
+    getline(ss_puzzles, token, ',');
+    getline(ss_puzzles, token, ',');
+    getline(ss_puzzles, token, ',');
+    getline(ss_puzzles, s_wildcard, ',');
+    int wildcard = stoi(s_wildcard);
+    cout << "wildcard: " << wildcard << endl;
+    return wildcard;
 }
 
 [[maybe_unused]] static void TestCube() {
