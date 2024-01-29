@@ -1343,6 +1343,39 @@ tuple<int, bool, Formula> ReadKaggleInput(const string& filename_puzzles,
     return {puzzle_size, is_normal, sample_formula};
 }
 
+int ReadKaggleInputWildcard(const string& filename_puzzles, const int id) {
+    if (id < 0 || id > 284) {
+        cerr << "id must be in [0, 284]" << endl;
+        abort();
+    }
+
+    // id+1 行目を読む
+    auto ifs_puzzles = ifstream(filename_puzzles);
+    if (!ifs_puzzles.good()) {
+        cerr << format("Cannot open file `{}`.", filename_puzzles) << endl;
+        abort();
+    }
+    string s_puzzles;
+    for (auto i = 0; i <= id + 1; i++)
+        getline(ifs_puzzles, s_puzzles);
+
+    stringstream ss_puzzles(s_puzzles);
+    string token, s_wildcard;
+    getline(ss_puzzles, token, ',');
+    assert(stoi(token) == id);
+    if (stoi(token) != id) {
+        cerr << "id mismatch" << endl;
+        exit(1);
+    }
+    getline(ss_puzzles, token, ',');
+    getline(ss_puzzles, token, ',');
+    getline(ss_puzzles, token, ',');
+    getline(ss_puzzles, s_wildcard, ',');
+    int wildcard = stoi(s_wildcard);
+    cout << "wildcard: " << wildcard << endl;
+    return wildcard;
+}
+
 [[maybe_unused]] static void TestCube() {
     // パリティ解消の辺の手筋
     constexpr auto kOrder = 7;

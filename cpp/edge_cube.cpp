@@ -1181,10 +1181,10 @@ template <int order> struct EdgeBeamSearchSolver {
 }
 
 template <int order>
-static void SolveWithOrder(const int problem_id, const bool is_normal,
-                           const Formula& sample_formula) {
+static void Solve(const int problem_id, const bool is_normal,
+                  const Formula& sample_formula, const int n_wildcards) {
     constexpr auto beam_width = 32;
-    constexpr auto formula_depth = 8;
+    constexpr auto formula_depth = order <= 5 ? 9 : order <= 19 ? 8 : 7;
     const auto formula_file =
         format("out/edge_formula_{}_{}.txt", order, formula_depth);
 
@@ -1199,11 +1199,68 @@ static void SolveWithOrder(const int problem_id, const bool is_normal,
     }
     getline(ifs, face_solution_string);
     ifs.close();
-    const auto face_solution = Formula(face_solution_string);
+    const auto face_solution = [&sample_formula, &face_solution_string,
+                                &is_normal, &n_wildcards] {
+        auto face_solution = Formula(face_solution_string);
+        if (n_wildcards == 0)
+            return face_solution;
+        // ワイルドカード含めて解になるところまで読んで切り捨てる
+        // 偶数キューブで不可能配置になって解けない場合がある模様
+        const auto truncate_face_solution = [&sample_formula, &face_solution,
+                                             &n_wildcards](auto cube) {
+            static_assert(is_same_v<decltype(cube), Cube<order, ColorType6>> ||
+                          is_same_v<decltype(cube), Cube<order, ColorType24>>);
+            cube.Reset();
+            const auto ref_cube = cube;
+            cube.RotateInv(sample_formula);
+            for (auto i = 0; i < face_solution.Cost(); i++) {
+                cube.Rotate(face_solution.moves[i]);
+                auto face_diff = 0;
+                for (auto face_id = 0; face_id < 6; face_id++) {
+                    if constexpr (is_same_v<decltype(cube),
+                                            Cube<order, ColorType6>>) {
+                        for (auto y = 1; y < order - 1; y++)
+                            for (auto x = 1; x < order - 1; x++)
+                                face_diff += cube.Get(face_id, y, x) !=
+                                             ref_cube.Get(face_id, y, x);
+                    } else if constexpr (is_same_v<decltype(cube),
+                                                   Cube<order, ColorType24>>) {
+                        auto min_diff = 9999;
+                        for (auto r = 0; r < 4; r++) {
+                            auto diff = 0;
+                            for (auto y = 1; y < order - 1; y++)
+                                for (auto x = 1; x < order - 1; x++)
+                                    diff += cube.Get(face_id, y, x) !=
+                                            ref_cube.Get(face_id, y, x);
+                            min_diff = min(min_diff, diff);
+                            cube.faces[face_id].RotateCW(1);
+                        }
+                        face_diff += min_diff;
+                    } else {
+                        assert(false);
+                    }
+                }
+
+                if (face_diff <= n_wildcards) {
+                    cout << "face diff: " << face_diff << endl;
+                    face_solution.moves.resize(i + 1);
+                    return face_solution;
+                }
+            }
+            cout << "Bad face solution." << endl;
+            abort();
+        };
+        if (is_normal)
+            return truncate_face_solution(Cube<order, ColorType6>());
+        else
+            return truncate_face_solution(Cube<order, ColorType24>());
+    }();
 
     // キューブを表示するラムダ式
-    const auto display_cube = [&sample_formula, &face_solution, &is_normal](
-                                  const Formula& solution = Formula()) {
+    const auto display_cube = [&sample_formula, &face_solution, &is_normal,
+                               &n_wildcards](const Formula& solution =
+                                                 Formula()) {
+        cout << "n_wildcards=" << n_wildcards << endl;
         if (is_normal) {
             auto cube = Cube<order, ColorType6>();
             cube.Reset();
@@ -1236,11 +1293,11 @@ static void SolveWithOrder(const int problem_id, const bool is_normal,
         initial_edge_cube.FromCube(initial_cube);
         if (order % 2 == 0) {
             for (const auto mov : sample_formula.moves)
-                if (mov.IsFaceRotation<order>())
+                if (mov.template IsFaceRotation<order>())
                     initial_edge_cube.corner_parity =
                         !initial_edge_cube.corner_parity;
             for (const auto mov : face_solution.moves)
-                if (mov.IsFaceRotation<order>())
+                if (mov.template IsFaceRotation<order>())
                     initial_edge_cube.corner_parity =
                         !initial_edge_cube.corner_parity;
         }
@@ -1344,33 +1401,35 @@ static void SolveWithOrder(const int problem_id, const bool is_normal,
     const auto filename_sample = "../input/sample_submission.csv";
     const auto [order, is_normal, sample_formula] =
         ReadKaggleInput(filename_puzzles, filename_sample, problem_id);
+    const auto n_wildcards =
+        ReadKaggleInputWildcard(filename_puzzles, problem_id);
     switch (order) {
     case 4:
-        SolveWithOrder<4>(problem_id, is_normal, sample_formula);
+        Solve<4>(problem_id, is_normal, sample_formula, n_wildcards);
         break;
     case 5:
-        SolveWithOrder<5>(problem_id, is_normal, sample_formula);
+        Solve<5>(problem_id, is_normal, sample_formula, n_wildcards);
         break;
     case 6:
-        SolveWithOrder<6>(problem_id, is_normal, sample_formula);
+        Solve<6>(problem_id, is_normal, sample_formula, n_wildcards);
         break;
     case 7:
-        SolveWithOrder<7>(problem_id, is_normal, sample_formula);
+        Solve<7>(problem_id, is_normal, sample_formula, n_wildcards);
         break;
     case 8:
-        SolveWithOrder<8>(problem_id, is_normal, sample_formula);
+        Solve<8>(problem_id, is_normal, sample_formula, n_wildcards);
         break;
     case 9:
-        SolveWithOrder<9>(problem_id, is_normal, sample_formula);
+        Solve<9>(problem_id, is_normal, sample_formula, n_wildcards);
         break;
     case 10:
-        SolveWithOrder<10>(problem_id, is_normal, sample_formula);
+        Solve<10>(problem_id, is_normal, sample_formula, n_wildcards);
         break;
     case 19:
-        SolveWithOrder<19>(problem_id, is_normal, sample_formula);
+        Solve<19>(problem_id, is_normal, sample_formula, n_wildcards);
         break;
     case 33:
-        SolveWithOrder<33>(problem_id, is_normal, sample_formula);
+        Solve<33>(problem_id, is_normal, sample_formula, n_wildcards);
         break;
     default:
         assert(false);
