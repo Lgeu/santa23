@@ -1,5 +1,5 @@
--r2.f1.-d1.f3.d1.-r1.-d1.-f2.f3.d1.-r0.-d3.f1.d0.-r0.f2
-16
--f3.-r2.-f0.-r3.f0.r2.-r2.d0.d3.-r3.-d0.-d3.r2.-d1.d2.f0.d1.d2.-r0.d2.d2.-r3.-d1.d2.f3.-d3.-f3.d1.-d2
-29
-RU FD UL RB UF DL LB DR DB FL FR UB DRF DLB UBL DFL ULF BUR BRD UFR
+-r2.f1.-r1.-d1.f1.-f3.-r2.-r3.f2.r3.-r0.-r1.d0.r1.-f2
+15
+-f0.d3.f2.-r0.-f3.r0.r3.f3.-r3.-f2.-d2.f0.d3.-f0.d2.f2.-r0.-f0.r0.-f2.-d2.r3.d0.-r3.d2
+25
+RB LD UR RF UL RD BU UF DB DF FL LB BLU FUL DBR RUF DLB FDR BUR DFL
