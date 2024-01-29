@@ -726,7 +726,7 @@ template <int width> struct GlobeFormulaSearcher {
         const auto original_results_size = (int)results.size();
         results.reserve(original_results_size * (width / 2 + 5));
 
-        constexpr bool removing_duplicates = true;
+        constexpr bool removing_duplicates = false;
         if constexpr (removing_duplicates) {
             assert(unit_globe == UnitGlobe(width * 2));
             vector<UnitMove> unit_moves_aug;
