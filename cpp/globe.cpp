@@ -631,10 +631,10 @@ template <int width> struct GlobeFormulaSearcher {
                  return a.unit_moves < b.unit_moves;
              });
 
-        auto top = 0;
+        u64 top = 0; // 33 80 10 6 hits 2.79 * 10^9
         auto found_permutations =
             unordered_set<UnitGlobe, typename UnitGlobe::Hash>();
-        for (auto idx_results = 0; idx_results < (int)results.size();
+        for (u64 idx_results = 0; idx_results < (u64)results.size();
              idx_results++) {
             const auto formula = results[idx_results];
             // 実際に手筋を使って回転させる
@@ -723,14 +723,14 @@ template <int width> struct GlobeFormulaSearcher {
     }
 
     inline void AugmentConjugate() {
-        const auto original_results_size = (int)results.size();
+        const auto original_results_size = (u64)results.size();
         results.reserve(original_results_size * (width / 2 + 5));
 
         constexpr bool removing_duplicates = false;
         if constexpr (removing_duplicates) {
             assert(unit_globe == UnitGlobe(width * 2));
             vector<UnitMove> unit_moves_aug;
-            for (auto i = 0; i < width / 2; i++) {
+            for (auto i = 0; i < width ; i++) {
                 unit_moves_aug.push_back(UnitMove(UnitMove::Direction::F, i));
             }
             unit_moves_aug.push_back(UnitMove(UnitMove::Direction::R, 0));
@@ -815,9 +815,9 @@ template <int width> struct GlobeFormulaSearcher {
         } else {
             // Flip で挟む
             // for (auto i = 0; i < width / 2; i++) {
-            for (auto i = 0; i < width; i++) {
+            for (auto i = 0; i < width / 2; i++) {
                 const auto mov = UnitMove(UnitMove::Direction::F, i);
-                for (auto idx_results = 0; idx_results < original_results_size;
+                for (u64 idx_results = 0; idx_results < original_results_size;
                      idx_results++) {
                     auto formula = results[idx_results];
                     formula.unit_moves.insert(formula.unit_moves.begin(), mov);
@@ -830,7 +830,7 @@ template <int width> struct GlobeFormulaSearcher {
                                    UnitMove(UnitMove::Direction::R, 1),
                                    UnitMove(UnitMove::Direction::Rp, 0),
                                    UnitMove(UnitMove::Direction::Rp, 1)}) {
-                for (auto idx_results = 0; idx_results < original_results_size;
+                for (u64 idx_results = 0; idx_results < original_results_size;
                      idx_results++) {
                     auto formula = results[idx_results];
                     formula.unit_moves.insert(formula.unit_moves.begin(), mov);
