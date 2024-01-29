@@ -1342,7 +1342,7 @@ template <int order>
 static void SolveWithOrder(const int problem_id, const bool is_normal,
                            const Formula& sample_formula) {
     constexpr auto beam_width = 32;
-    constexpr auto formula_depth = 8;
+    constexpr auto formula_depth = order <= 5 ? 9 : order <= 19 ? 8 : 7;
     const auto formula_file =
         format("out/edge_formula_{}_{}.txt", order, formula_depth);
 
