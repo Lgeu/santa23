@@ -578,18 +578,19 @@ template <int order_, typename ColorType_ = ColorType48> struct EdgeCube {
     inline auto ComputeEdgeScore() const {
         // あれ、1 面 4 色でよかったんじゃ……
         auto score = 0;
-        constexpr auto use_popular_color_metric = false; // true は不安定
+        // true は不安定だがいい感じになることもあるっぽい
+        constexpr auto use_popular_color_metric = false;
         for (const auto face_id : {0, 5})
             for (auto edge_id = 0; edge_id < 4; edge_id++) {
                 if constexpr (use_popular_color_metric) {
-                auto counts = array<i8, 24>();
-                auto most_popular_color_count = 1;
-                for (auto x = 0; x < order - 2; x++)
-                    most_popular_color_count = max(
-                        most_popular_color_count,
+                    auto counts = array<i8, 24>();
+                    auto most_popular_color_count = 1;
+                    for (auto x = 0; x < order - 2; x++)
+                        most_popular_color_count = max(
+                            most_popular_color_count,
                             (int)++counts
                                 [faces[face_id].facelets[edge_id][x].data / 2]);
-                score += most_popular_color_count;
+                    score += most_popular_color_count;
                 } else {
                     for (auto x = 0; x < order - 2; x++)
                         score += faces[face_id].facelets[edge_id][x].data / 2 !=
@@ -602,14 +603,14 @@ template <int order_, typename ColorType_ = ColorType48> struct EdgeCube {
         for (auto face_id = 1; face_id < 5; face_id++) {
             const auto edge_id = 1;
             if constexpr (use_popular_color_metric) {
-            auto counts = array<i8, 24>();
-            auto most_popular_color_count = 1;
-            for (auto x = 0; x < order - 2; x++)
+                auto counts = array<i8, 24>();
+                auto most_popular_color_count = 1;
+                for (auto x = 0; x < order - 2; x++)
                     most_popular_color_count = max(
                         most_popular_color_count,
                         (int)++counts[faces[face_id].facelets[edge_id][x].data /
                                       2]);
-            score += most_popular_color_count;
+                score += most_popular_color_count;
             } else {
                 for (auto x = 0; x < order - 2; x++)
                     score +=
@@ -619,7 +620,7 @@ template <int order_, typename ColorType_ = ColorType48> struct EdgeCube {
             }
         }
         if constexpr (use_popular_color_metric)
-        score = 12 * (order - 2) - score;
+            score = 12 * (order - 2) - score;
         score *= 2;
         if constexpr (order % 2 == 0)
             score += ComputePLLParity() * 100;
@@ -870,6 +871,37 @@ template <int order> struct EdgeAction {
         assert(!formula.use_facelet_changes);
     }
 
+    inline EdgeAction(const Formula& formula, const EdgeFaceletChanges& changes)
+        : formula(formula), facelet_changes(changes) {
+        assert(!formula.use_facelet_changes);
+    }
+
+    inline bool CanMergeWith(const EdgeAction& next_action) const {
+        assert(formula.Cost() > 0 && next_action.formula.Cost() > 0);
+        // 無の action ができるとまずい
+        if (formula.Cost() == 1 && next_action.formula.Cost() == 1)
+            return false;
+        // 逆操作なら打ち消される
+        // 難しいパターンは考えない
+        if (formula.moves.back().Inv() == next_action.formula.moves.front())
+            return true;
+        return false;
+    }
+
+    inline EdgeAction Merge(const EdgeAction& next_action) const {
+        assert(CanMergeWith(next_action));
+        auto result_formula = formula;
+        result_formula.moves.pop_back();
+        result_formula.moves.insert(result_formula.moves.end(),
+                                    next_action.formula.moves.begin() + 1,
+                                    next_action.formula.moves.end());
+        // FaceletChanges は使われないはずなので、
+        // 使われたらエラーが出そうな値を入れておく
+        return EdgeAction(
+            result_formula,
+            EdgeFaceletChanges{{{{-100, -101}, {-102, -103}}}, false});
+    }
+
     inline auto Cost() const { return formula.Cost(); }
 };
 
@@ -880,12 +912,11 @@ template <int order> struct EdgeState {
     int score;   // target との距離
     int n_moves; // これまでに回した回数
 
-    inline EdgeState(const EdgeCube& cube, const EdgeCube& /*target_cube*/)
+    inline EdgeState(const EdgeCube& cube)
         : cube(cube), score(cube.ComputeEdgeScore()), n_moves() {}
 
     // inplace に変更する
-    inline void Apply(const EdgeAction& action,
-                      const EdgeCube& /*target_cube*/) {
+    inline void Apply(const EdgeAction& action) {
         cube.Rotate(action.facelet_changes);
         score = cube.ComputeEdgeScore();
         n_moves += action.Cost();
@@ -951,23 +982,20 @@ template <int order> struct EdgeBeamSearchSolver {
     using EdgeAction = ::EdgeAction<order>;
     using EdgeActionCandidateGenerator = ::EdgeActionCandidateGenerator<order>;
 
-    EdgeCube target_cube;
     EdgeActionCandidateGenerator action_candidate_generator;
     int beam_width;
     vector<vector<shared_ptr<EdgeNode>>> nodes;
 
-    inline EdgeBeamSearchSolver(const EdgeCube& target_cube,
-                                const bool is_normal, const int beam_width,
+    inline EdgeBeamSearchSolver(const bool is_normal, const int beam_width,
                                 const string& formula_file)
-        : target_cube(target_cube), action_candidate_generator(),
-          beam_width(beam_width), nodes() {
+        : action_candidate_generator(), beam_width(beam_width), nodes() {
         action_candidate_generator.FromFile(formula_file, is_normal);
     }
 
     inline shared_ptr<EdgeNode> Solve(const EdgeCube& start_cube) {
         auto rng = RandomNumberGenerator(42);
 
-        const auto start_state = EdgeState(start_cube, target_cube);
+        const auto start_state = EdgeState(start_cube);
         const auto start_node = make_shared<EdgeNode>(
             start_state, nullptr, EdgeAction(Formula(vector<Move>())));
         nodes.clear();
@@ -988,18 +1016,33 @@ template <int order> struct EdgeBeamSearchSolver {
                 for (const auto& action :
                      action_candidate_generator.Generate(node->state)) {
                     auto new_state = node->state;
-                    new_state.Apply(action, target_cube);
-                    if (new_state.n_moves >= (int)nodes.size())
-                        nodes.resize(new_state.n_moves + 1);
-                    if ((int)nodes[new_state.n_moves].size() < beam_width) {
-                        nodes[new_state.n_moves].emplace_back(
-                            new EdgeNode(new_state, node, action));
-                    } else {
-                        const auto idx = rng.Next() % beam_width;
-                        if (new_state.score <
-                            nodes[new_state.n_moves][idx]->state.score)
-                            nodes[new_state.n_moves][idx].reset(
+                    new_state.Apply(action);
+                    const auto try_make_new_node = [this,
+                                                    &rng](const auto& node,
+                                                          const auto& new_state,
+                                                          const auto& action) {
+                        if (new_state.n_moves >= (int)nodes.size())
+                            nodes.resize(new_state.n_moves + 1);
+                        if ((int)nodes[new_state.n_moves].size() < beam_width) {
+                            nodes[new_state.n_moves].emplace_back(
                                 new EdgeNode(new_state, node, action));
+                        } else {
+                            const auto idx = rng.Next() % beam_width;
+                            if (new_state.score <
+                                nodes[new_state.n_moves][idx]->state.score)
+                                nodes[new_state.n_moves][idx].reset(
+                                    new EdgeNode(new_state, node, action));
+                        }
+                    };
+                    if (node->parent != nullptr &&
+                        node->last_action.CanMergeWith(action)) {
+                        new_state.n_moves -= 2;
+                        const auto merged_action =
+                            node->last_action.Merge(action);
+                        try_make_new_node(node->parent, new_state,
+                                          merged_action);
+                    } else {
+                        try_make_new_node(node, new_state, action);
                     }
                 }
             }
@@ -1118,10 +1161,7 @@ template <int order> struct EdgeBeamSearchSolver {
         initial_cube.FromCube(cube);
     }
 
-    auto target_cube = EdgeCube();
-    target_cube.Reset();
-
-    auto solver = Solver(target_cube, true, beam_width, formula_file);
+    auto solver = Solver(true, beam_width, formula_file);
 
     const auto node = solver.Solve(initial_cube);
     if (node != nullptr) {
@@ -1206,8 +1246,6 @@ static void SolveWithOrder(const int problem_id, const bool is_normal,
         }
         return initial_edge_cube;
     }();
-    auto target_edge_cube = EdgeCube<order>();
-    target_edge_cube.Reset();
 
     // パリティは予め解消しておく
     auto parity_resolved_edge_cube = initial_edge_cube;
@@ -1227,8 +1265,8 @@ static void SolveWithOrder(const int problem_id, const bool is_normal,
     display_cube(parity_resolving_formula);
 
     // 解く
-    auto solver = EdgeBeamSearchSolver<order>(target_edge_cube, is_normal,
-                                              beam_width, formula_file);
+    auto solver =
+        EdgeBeamSearchSolver<order>(is_normal, beam_width, formula_file);
     const auto node = solver.Solve(parity_resolved_edge_cube);
     if (node == nullptr) // 失敗
         return;
