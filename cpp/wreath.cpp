@@ -6,6 +6,7 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -18,9 +19,13 @@ using std::cout;
 using std::endl;
 using std::fill;
 using std::format;
+using std::ifstream;
+using std::ios;
 using std::make_shared;
+using std::max;
 using std::min;
 using std::ofstream;
+using std::optional;
 using std::ostream;
 using std::ostringstream;
 using std::shared_ptr;
@@ -177,18 +182,18 @@ template <int siz> struct Wreath {
     array<WreathPosition, 2> c_positions;
 
     inline void Reset() {
-        ring_a_inside.reset();
+        ring_a_inside.reset(); // a = 0
         ring_a_outside.reset();
-        ring_b_inside.set();
+        ring_b_inside.set(); // b = 1
         ring_b_outside.set();
-        intersections.reset();
+        intersections.reset(); // c = 0
         c_positions[0] = {WreathPosition::Arc::Intersection, 0};
         c_positions[1] = {WreathPosition::Arc::Intersection, 1};
     }
 
     inline Color Get(const WreathPosition pos) const {
-        if (pos == c_positions[0] || pos == c_positions[1]) [[unlikely]]
-            return kColorC;
+        if (pos == c_positions[0] || pos == c_positions[1])
+            [[unlikely]] return kColorC;
         return Color{(i8)([this, &pos] {
             switch (pos.arc) {
             case WreathPosition::Arc::AInside:
@@ -358,7 +363,8 @@ template <int siz> struct Wreath {
         }
     }
 
-    inline auto ComputeScore() const {
+    inline auto
+    ComputeScore(const int& n_wildcards = 0) {
         using Arc = WreathPosition::Arc;
         // 外側で揃っていない玉の数
         const auto a_outside_score = (int)ring_a_outside.count();
@@ -366,6 +372,103 @@ template <int siz> struct Wreath {
             ring_b_outside_size - (int)ring_b_outside.count() -
             (c_positions[0].arc == Arc::BOutside ? 1 : 0) -
             (c_positions[1].arc == Arc::BOutside ? 1 : 0);
+        // int a_out_consecutive = 0;
+        // int a_in_consecutive = 0;
+        // int b_out_consecutive = 0;
+        // int b_in_consecutive = 0;
+
+        // int temp = 0;
+        // for (int i = 0; i < ring_a_outside_size; i++) {
+        //     if (!ring_a_outside[i])
+        //         temp++;
+        //     else
+        //         temp = 0;
+        //     a_out_consecutive = max(a_out_consecutive, temp);
+        // }
+        // temp = 0;
+        // if (c_positions[0].arc == Arc::BOutside)
+        //     ring_b_outside.set(c_positions[0].index, true);
+        // if (c_positions[1].arc == Arc::BOutside)
+        //     ring_b_outside.set(c_positions[1].index, true);
+        // for (int i = 0; i < ring_b_outside_size; i++) {
+        //     if (ring_b_outside[i])
+        //         temp++;
+        //     else
+        //         temp = 0;
+        //     b_out_consecutive = max(b_out_consecutive, temp);
+        // }
+        // if (c_positions[0].arc == Arc::BOutside)
+        //     ring_b_outside.set(c_positions[0].index, false);
+        // if (c_positions[1].arc == Arc::BOutside)
+        //     ring_b_outside.set(c_positions[1].index, false);
+
+        // temp = 0;
+        // for (int i = 0; i < ring_a_inside_size; i++) {
+        //     if (!ring_a_inside[i])
+        //         temp++;
+        //     else
+        //         temp = 0;
+        //     a_in_consecutive = max(a_in_consecutive, temp);
+        // }
+        // temp = 0;
+        // if (c_positions[0].arc == Arc::BInside)
+        //     ring_b_inside.set(c_positions[0].index, true);
+        // if (c_positions[1].arc == Arc::BInside)
+        //     ring_b_inside.set(c_positions[1].index, true);
+        // for (int i = 0; i < ring_b_inside_size; i++) {
+        //     if (ring_b_inside[i])
+        //         temp++;
+        //     else
+        //         temp = 0;
+        //     b_in_consecutive = max(b_in_consecutive, temp);
+        // }
+        // if (c_positions[0].arc == Arc::BInside)
+        //     ring_b_inside.set(c_positions[0].index, false);
+        // if (c_positions[1].arc == Arc::BInside)
+        //     ring_b_inside.set(c_positions[1].index, false);
+
+        // a_out_consecutive = min(a_out_consecutive, ring_a_outside_size-10);
+        // b_out_consecutive = min(b_out_consecutive, ring_b_outside_size-10);
+        // a_in_consecutive = min(a_in_consecutive, ring_a_inside_size-5);
+        // b_in_consecutive = min(b_in_consecutive, ring_b_inside_size-5);
+
+        // int a_out_distance = 0;
+        // for (int i = 0; i < ring_a_outside_size; i++)
+        //     if (ring_a_outside[i]) {
+        //         if (i < ring_a_outside_size / 2)
+        //             a_out_distance += 10 * (i + 1);
+        //         // else
+        //         //     a_out_distance += ring_a_outside_size - i;
+        //     }
+        // a_out_distance += min(i + 1, ring_a_outside_size - i);
+        // for (int i = 0; i < ring_a_inside_size; i++)
+        //     if (ring_a_inside[i]) {
+        //         if (i < ring_a_inside_size / 2)
+        //             a_out_distance += 10 * (i + 1);
+        //         // else
+        //         //     a_out_distance += ring_a_inside_size - i;
+        //     }
+        // if (!ring_a_inside[i])
+        //     a_out_distance += min(i + 1, ring_a_inside_size - i);
+        // int b_out_distance = 0;
+        // for (int i = 0; i < ring_b_outside_size; i++)
+        //     if (ring_b_outside[i]) {
+        //         if (i < ring_b_outside_size / 2)
+        //             b_out_distance += 10 * (i + 1);
+        //         // else
+        //         //     b_out_distance += ring_b_outside_size - i;
+        //     }
+        // if (!ring_b_outside[i])
+        //     b_out_distance += min(i + 1, ring_b_outside_size - i);
+        // for (int i = 0; i < ring_b_inside_size; i++)
+        //     if (ring_b_inside[i]) {
+        //         if (i < ring_b_inside_size / 2)
+        //             b_out_distance += 10 * (i + 1);
+        //         // else
+        //         //     b_out_distance += ring_b_inside_size - i;
+        //     }
+        //     // if (!ring_b_inside[i])
+        //     b_out_distance += min(i + 1, ring_b_inside_size - i);
 
         // 内側で揃っていない玉の数
         const auto a_inside_score = (int)ring_a_inside.count();
@@ -379,77 +482,108 @@ template <int siz> struct Wreath {
         auto c_same_ring_penalty = 0;
         auto c_different_ring_penalty = 0;
         auto ab_intersection_score = 0;
-        // 両方ともリング A 上の場合
-        if (c_positions[0].IsOnRingA() && c_positions[1].IsOnRingA()) {
-            const auto p0 = c_positions[0];
-            const auto p1 = c_positions[1];
-            auto idx0 = p0.arc == Arc::AInside ? p0.index + 1
-                        : p0.arc == Arc::AOutside
-                            ? p0.index + ring_a_inside_size + 2
-                            : p0.index * (ring_a_inside_size + 1);
-            auto idx1 = p1.arc == Arc::AInside ? p1.index + 1
-                        : p1.arc == Arc::AOutside
-                            ? p1.index + ring_a_inside_size + 2
-                            : p1.index * (ring_a_inside_size + 1);
-            if (idx0 > idx1)
-                swap(idx0, idx1);
-            static_assert((ring_a_inside_size + 1) * 2 != siz);
-            // 間隔が適切 (idx0 が 0 側)
-            if (idx1 - idx0 == ring_a_inside_size + 1)
-                c_same_ring_score = min(idx0, siz - idx0);
-            // 間隔が適切 (idx1 が 0 側)
-            else if (siz - (idx1 - idx0) == ring_a_inside_size + 1)
-                c_same_ring_score = min(idx1, siz - idx1);
-            // 間隔が適切でない
-            else
-                c_same_ring_penalty = 1;
-            ab_intersection_score = intersections.count();
-        }
-        // 両方ともリング B 上の場合
-        else if (c_positions[0].IsOnRingB() && c_positions[1].IsOnRingB()) {
-            const auto p0 = c_positions[0];
-            const auto p1 = c_positions[1];
-            auto idx0 = p0.arc == Arc::BInside ? p0.index + 1
-                        : p0.arc == Arc::BOutside
-                            ? p0.index + ring_b_inside_size + 2
-                            : p0.index * (ring_b_inside_size + 1);
-            auto idx1 = p1.arc == Arc::BInside ? p1.index + 1
-                        : p1.arc == Arc::BOutside
-                            ? p1.index + ring_b_inside_size + 2
-                            : p1.index * (ring_b_inside_size + 1);
-            if (idx0 > idx1)
-                swap(idx0, idx1);
-            if constexpr ((ring_b_inside_size + 1) * 2 == siz) {
-                // 間隔が適切
-                if (idx1 - idx0 == ring_b_inside_size + 1) {
-                    assert(siz - (idx1 - idx0) == ring_b_inside_size + 1);
-                    c_same_ring_score =
-                        min({idx0, siz - idx0, idx1, siz - idx1});
-                } else // 間隔が適切でない
-                    c_same_ring_penalty = 1;
-            } else {
+        // auto wildcard_correction = 0;
+        // siz==100　のときはn_wildcards=8なのでCは実質無視できる
+        if constexpr (siz != 100) {
+            // 両方ともリング A 上の場合
+            if (c_positions[0].IsOnRingA() && c_positions[1].IsOnRingA()) {
+                const auto p0 = c_positions[0];
+                const auto p1 = c_positions[1];
+                auto idx0 = p0.arc == Arc::AInside
+                                ? p0.index + 1
+                                : p0.arc == Arc::AOutside
+                                      ? p0.index + ring_a_inside_size + 2
+                                      : p0.index * (ring_a_inside_size + 1);
+                auto idx1 = p1.arc == Arc::AInside
+                                ? p1.index + 1
+                                : p1.arc == Arc::AOutside
+                                      ? p1.index + ring_a_inside_size + 2
+                                      : p1.index * (ring_a_inside_size + 1);
+                if (idx0 > idx1)
+                    swap(idx0, idx1);
+                static_assert((ring_a_inside_size + 1) * 2 != siz);
                 // 間隔が適切 (idx0 が 0 側)
-                if (idx1 - idx0 == ring_b_inside_size + 1)
+                if (idx1 - idx0 == ring_a_inside_size + 1)
                     c_same_ring_score = min(idx0, siz - idx0);
                 // 間隔が適切 (idx1 が 0 側)
-                else if (siz - (idx1 - idx0) == ring_b_inside_size + 1)
+                else if (siz - (idx1 - idx0) == ring_a_inside_size + 1)
                     c_same_ring_score = min(idx1, siz - idx1);
                 // 間隔が適切でない
                 else
                     c_same_ring_penalty = 1;
+                ab_intersection_score = intersections.count();
             }
-            ab_intersection_score =
-                (int)(Get({WreathPosition::Arc::Intersection, 0}) == kColorA) +
-                (int)(Get({WreathPosition::Arc::Intersection, 1}) == kColorA);
+            // 両方ともリング B 上の場合
+            else if (c_positions[0].IsOnRingB() && c_positions[1].IsOnRingB()) {
+                const auto p0 = c_positions[0];
+                const auto p1 = c_positions[1];
+                auto idx0 = p0.arc == Arc::BInside
+                                ? p0.index + 1
+                                : p0.arc == Arc::BOutside
+                                      ? p0.index + ring_b_inside_size + 2
+                                      : p0.index * (ring_b_inside_size + 1);
+                auto idx1 = p1.arc == Arc::BInside
+                                ? p1.index + 1
+                                : p1.arc == Arc::BOutside
+                                      ? p1.index + ring_b_inside_size + 2
+                                      : p1.index * (ring_b_inside_size + 1);
+                if (idx0 > idx1)
+                    swap(idx0, idx1);
+                if constexpr ((ring_b_inside_size + 1) * 2 == siz) {
+                    // 間隔が適切
+                    if (idx1 - idx0 == ring_b_inside_size + 1) {
+                        assert(siz - (idx1 - idx0) == ring_b_inside_size + 1);
+                        c_same_ring_score =
+                            min({idx0, siz - idx0, idx1, siz - idx1});
+                    } else // 間隔が適切でない
+                        c_same_ring_penalty = 1;
+                } else {
+                    // 間隔が適切 (idx0 が 0 側)
+                    if (idx1 - idx0 == ring_b_inside_size + 1)
+                        c_same_ring_score = min(idx0, siz - idx0);
+                    // 間隔が適切 (idx1 が 0 側)
+                    else if (siz - (idx1 - idx0) == ring_b_inside_size + 1)
+                        c_same_ring_score = min(idx1, siz - idx1);
+                    // 間隔が適切でない
+                    else
+                        c_same_ring_penalty = 1;
+                }
+                ab_intersection_score =
+                    (int)(Get({WreathPosition::Arc::Intersection, 0}) ==
+                          kColorA) +
+                    (int)(Get({WreathPosition::Arc::Intersection, 1}) ==
+                          kColorA);
+            }
+            // 一方がリング A 上、一方がリング B 上の場合
+            else {
+                c_different_ring_penalty = 1;
+            }
         }
-        // 一方がリング A 上、一方がリング B 上の場合
-        else {
-            c_different_ring_penalty = 1;
-        }
+        // siz==100　のときはn_wildcards=8なのでC以外で6個間違っていていい
+        int c_intersection_score = 0;
+        if (c_positions[0].arc != Arc::Intersection)
+            c_intersection_score += 2;
+        if (c_positions[1].arc != Arc::Intersection)
+            c_intersection_score += 2;
+        if (a_outside_score + b_outside_score + a_inside_score + b_inside_score + c_intersection_score <= n_wildcards)
+            return 0;
+
         return (a_outside_score + b_outside_score) * 10 +
-               (a_inside_score + b_inside_score + ab_intersection_score) * 10 +
+               (a_inside_score + b_inside_score + ab_intersection_score) *
+                   10 +
                c_same_ring_score + c_same_ring_penalty * 200 +
                c_different_ring_penalty * 100;
+
+        //    max(0, ring_a_outside_size - a_out_consecutive - 0) * 100 +
+        //    max(0, ring_b_outside_size - b_out_consecutive - 0) * 100 +
+        //    max(0, ring_a_inside_size - a_in_consecutive - 0) * 10 +
+        //    max(0, ring_b_inside_size - b_in_consecutive - 0) * 10;
+
+        // return (a_outside_score + b_outside_score) * 10 +
+        //        (a_inside_score + b_inside_score + ab_intersection_score) * 10
+        //        + c_same_ring_score + c_same_ring_penalty * 200 +
+        //        c_different_ring_penalty * 100 - wildcard_correction +
+        //        a_out_distance + b_out_distance;
     }
 
     inline void Read(const string s) {
@@ -541,10 +675,17 @@ template <int siz, int scoring_depth> struct State {
     i8 last_move;                         // 初期状態では -1
     array<int, scoring_depth + 1> scores; // 各深さでのスコア
     int n_moves;
+    vector<vector<Move>> next_moves;
+    int n_wildcards;
 
-    inline State(const Wreath<siz>& wreath, const i8 last_move)
-        : wreath(wreath), last_move(last_move), n_moves() {
+    inline State(const Wreath<siz>& wreath, const i8 last_move, const int n_wildcards = 0)
+        : wreath(wreath), last_move(last_move), n_moves(), next_moves(4), n_wildcards(n_wildcards) {
         ComputeScores();
+        // next_moves.resize(5);
+        next_moves[0] = {kMoveA, kMoveAp};
+        next_moves[1] = {kMoveB, kMoveBp};
+        next_moves[2] = {kMoveA, kMoveAp, kMoveB, kMoveBp};
+        next_moves[3] = {kMoveA, kMoveB};
     }
 
     // inplace に変更する
@@ -570,10 +711,26 @@ template <int siz, int scoring_depth> struct State {
         array<Move, scoring_depth> move_history;
     };
     inline void Dfs(DFSInfo& info) {
-        scores[info.depth] = min(scores[info.depth], wreath.ComputeScore());
+        scores[info.depth] =
+            min(scores[info.depth],
+                wreath.ComputeScore(n_wildcards));
         if (info.depth == scoring_depth)
             return;
-        for (auto mov : {kMoveA, kMoveAp, kMoveB, kMoveBp}) {
+        int move_idx = 3;
+        if constexpr (siz == 21 || siz == 33 || siz == 100) {
+            bool c_on_interset =
+                (wreath.c_positions[0] ==
+                    WreathPosition({WreathPosition::Arc::Intersection, 0}) ||
+                wreath.c_positions[1] ==
+                    WreathPosition({WreathPosition::Arc::Intersection, 0}));
+            if (wreath.intersections[0] == 0) {
+                move_idx = 0;
+            } else if (wreath.intersections[0] == 1 && not c_on_interset) {
+                move_idx = 1;
+            } else if (c_on_interset)
+                move_idx = 2;
+        }
+        for (auto mov : next_moves[move_idx]) {
             const auto inv_mov = mov.Inv();
             if (info.depth == 0) {
                 if (last_move == (i8)inv_mov.move_type)
@@ -614,7 +771,7 @@ template <int siz, int scoring_depth> struct BeamSearchSolver {
     inline shared_ptr<Node> Solve(const Wreath& start_wreath, int n_wildcards) {
         auto rng = RandomNumberGenerator(42);
 
-        const auto start_state = State(start_wreath, -1);
+        const auto start_state = State(start_wreath, -1, n_wildcards);
         const auto start_node = make_shared<Node>(start_state, nullptr);
         nodes.clear();
         nodes.resize(1);
@@ -633,7 +790,22 @@ template <int siz, int scoring_depth> struct BeamSearchSolver {
                     cerr << "Solved!" << endl;
                     return node;
                 }
+                // vector<Move> next_moves;
+                // if (intersections[0] == 1) {
+                //     next_moves.push_back(kMoveB);
+                //     next_moves.push_back(kMoveBp);
+                // }
+                // else if (intersections[0] == 0 && c_positions[0].arc !=
+                // Arc::Intersection && c_positions[1].arc != Arc::Intersection)
+                // {
+                //     next_moves.push_back(kMoveA);
+                //     next_moves.push_back(kMoveAp);
+                // }
+                // else
+                //     next_moves = {kMoveA, kMoveAp, kMoveB, kMoveBp}
+
                 for (const auto& action : {kMoveA, kMoveAp, kMoveB, kMoveBp}) {
+                    // for (const auto& action : next_moves) {
                     if ((i8)action.Inv().move_type == node->state.last_move)
                         continue;
                     auto new_state = node->state;
@@ -733,7 +905,7 @@ template <int siz, int scoring_depth> struct BeamSearchSolver {
 
 [[maybe_unused]] void TestBeamSearch() {
     static constexpr auto kWreathSize = 33;
-    static constexpr auto kBeamWidthForEachDepth = 1;
+    static constexpr auto kBeamWidthForEachDepth = 10;
     static constexpr auto kScoringDepth = 12;
     auto solver =
         BeamSearchSolver<kWreathSize, kScoringDepth>(kBeamWidthForEachDepth);
@@ -766,8 +938,8 @@ template <int siz, int scoring_depth> struct BeamSearchSolver {
 }
 
 template <int siz> static void Solve(const Problem problem) {
-    static constexpr auto kBeamWidthForEachDepth = 4;
-    static constexpr auto kScoringDepth = 12;
+    static constexpr auto kBeamWidthForEachDepth = 50;
+    static constexpr auto kScoringDepth = 55;
 
     assert(problem.size == siz);
     auto wreath = Wreath<siz>();
@@ -796,11 +968,34 @@ template <int siz> static void Solve(const Problem problem) {
         wreath.Display();
 
         // ファイルに結果を書き出す
-        auto ofs = ofstream(format("result/wreath/{}.txt", problem.id));
+        auto ofs = ofstream(format("result/wreath/{}.txt", problem.id), ios::app);
         ofs << format("# n_moves={}\n", node->state.n_moves);
         ofs << format("# kBeamWidthForEachDepth={}\n", kBeamWidthForEachDepth);
         ofs << format("# kScoringDepth={}\n", kScoringDepth);
         ofs << solution_string << endl;
+        ofs.close();
+
+        // best solution
+        auto ifs_best = ifstream(format("result/wreath/{}_best.txt", problem.id));
+        auto best_score = 9999;
+        if (ifs_best.good()) {
+            string line;
+            getline(ifs_best, line);
+            getline(ifs_best, line);
+            best_score = stoi(line);
+            ifs_best.close();
+        }
+        if ((int) node->state.n_moves <= best_score) {
+            auto ofs_best = ofstream(format("result/wreath/{}_best.txt", problem.id));
+            if (ofs_best.good()) {
+                ofs_best << solution_string << endl;
+                ofs_best << (int) node->state.n_moves << endl;
+                ofs_best.close();
+            } else
+                cout << "Failed to open best file." << endl;
+        } else {
+            cout << "Couldn't update best score." << endl;
+        }
     }
 }
 
@@ -829,6 +1024,9 @@ template <int siz> static void Solve(const Problem problem) {
         break;
     case 33:
         Solve<33>(problem);
+        break;
+    case 100:
+        Solve<100>(problem);
         break;
     default:
         assert(false);
