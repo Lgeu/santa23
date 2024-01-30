@@ -1,5 +1,0 @@
--r3.d1.r6.r0.-d4.f4.d0.r4.f0.d3.-f7.d0.r6.-d6.d7.f1.r5.-r2.-f4.d2.f4.r2.f3.-r3.-f0.-f3.r3.-d7.-f6.-r5.d7.f6.-f3.r5.f7.r7.r2.-d2.f3.-r2.d2.f0.-d1.r7.f7.r1.d1.-r1.-r6.d1.f5.r6.-d1.-f5.r3.d3.-r3.d7.r6.f1.-d3.-f1.-d0.r1.-d6.-r1.d0.d6.-r6.-f0.r3.f5.d7.-f5.-f0.-r0.-r1.f0.-r3.-f0.r1.d2.f6.-d2.-f6.d0.d4.d4.r4.d4.d4.-r4.r3.d6.-r3.-d6.d0.f3.-f7.r1.-f3.-r1.r7.-d6.f2.d6.-f2.-r6.r0.r0.d2.r6.f0.r5.d3.-r5.-d3.-f0.-d2.r2.f7.r7.-d3.-f7.-r2.f7.d3.d5.d0.-f5.-d5.d6.f5.d0.-f5.-d6.f5.-f0.r4.d4.d7.-f3.-d4.f3.-d7.d1.-r4.d7.d7.r4.-d1.f6.-r4.-f7.r4.-f6.-r4.d0.-d5.-r7.-f5.r7.d5.f3.-r7.f5.r7.-f3
-168
-r5.-d7.-d7.r5.-d7.-d7.f0.f0.r5.f0.f0.r2.-d7.-d7.-r2.-d7.-d7.-r5.-r5.f0.r3.-r4.d7.-r0.r7.-d7.-r3.r4.-f4.-d7.r7.f7.d7.-f0.-r7.f4.-d7.-f3.-d7.-r0.-f0.d7.f0.r0.f3.-f6.d6.f7.d0.-f7.-d0.-d6.f6.d5.r6.d0.f7.-d0.-f7.-r6.-d5.r0.-d1.-d5.r0.d0.d0.-r0.d1.d5.d0.-d7.-f4.-r7.f7.-r0.f7.r0.r7.f4.-d7.r6.f0.r7.-f0.-r6.-d3.r7.f7.d0.-f7.-r7.d3.-d0.d6.f0.-d7.r7.d0.-f0.-r7.-d6.-f7.-d5.r7.-d0.-d7.-r7.d5.f5.-r5.-f0.-d7.f0.d7.r5.-f5.r2.d7.r0.-d7.-r2.r5.d7.r7.-d7.-r5.f2.d0.f7.f7.-d0.-f2
-133
-LD UF BL RD RB UL FD UR FR BD UB LF BRD DRF DFL LFU RBU UBL UFR DLB

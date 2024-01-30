@@ -1,5 +1,5 @@
--f1.r2.f0.f0.-d1.f2.f3.r1.-d1.f0.-f3.r3.d1.-f2.d0.f2
+-f1.r2.f0.f0.-d1.f2.f3.r1.d2.r0.-r3.-f0.-d2.-f2.d0.f2
 16
-f3.f2.-r3.-d3.f0.f3.r3.f3.d3.-f2.-d2.r0.-f3.-r0.f3.d2.-r2.f3.-d3.r3.d3.-f3.r2
+f1.-r0.-f1.-d0.-f2.-d3.f2.-d1.r3.d3.f3.d3.-r3.-d3.-f3.d1.f1.-r3.-d3.f3.r3.d3.-f1
 23
-LF DB RU LB RB FD LU UB UF DR FR DL BDL RUF RDB RBU RFD LDF LFU BLU
+RF FU DB UB LF BR BL DF DR LU RU LD DFL BUR UBL DLB RUF FDR DBR ULF
