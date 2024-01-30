@@ -1442,7 +1442,7 @@ template <int order>
 static void SolveWithOrder(const int problem_id, const bool is_normal,
                            const Formula& sample_formula) {
     constexpr auto beam_width = 32;
-    constexpr auto formula_depth = order <= 5 ? 9 : order <= 19 ? 8 : 7;
+    constexpr auto formula_depth = order == 3 ? 1 : order <= 5 ? 9 : order <= 19 ? 8 : 7;
     const auto formula_file =
         format("out/edge_formula_{}_{}.txt", order, formula_depth);
 
@@ -1600,6 +1600,9 @@ static void SolveWithOrder(const int problem_id, const bool is_normal,
     const auto [order, is_normal, sample_formula] =
         ReadKaggleInput(filename_puzzles, filename_sample, problem_id);
     switch (order) {
+    case 3:
+        SolveWithOrder<3>(problem_id, is_normal, sample_formula);
+        break;
     case 4:
         SolveWithOrder<4>(problem_id, is_normal, sample_formula);
         break;
