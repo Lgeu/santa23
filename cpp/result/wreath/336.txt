@@ -1,4 +1,4 @@
-# n_moves=143
-# kBeamWidthForEachDepth=4
-# kScoringDepth=12
-l.r.l.r.r.r.r.l.r.l.l.r.-l.r.-l.-r.-r.l.l.r.l.l.l.-r.l.r.l.l.l.-r.l.l.-r.l.l.-r.l.l.l.l.r.-l.r.-l.r.l.r.l.r.r.r.r.r.r.-l.r.r.r.r.-l.r.r.-l.-l.-l.-l.r.l.-r.-l.r.-l.-l.-l.-l.-l.-l.-l.r.-l.-r.-r.-r.-r.-l.-r.l.r.-l.-r.l.-r.-l.r.l.-r.-r.-r.-r.l.r.r.-l.r.l.r.r.r.r.r.r.-l.r.l.l.-r.-l.r.l.l.r.-l.-r.l.l.l.l.l.l.r.r.l.l.l.l.-r.-r.l.l.l.l.l.r
+# n_moves=117
+# kBeamWidthForEachDepth=20
+# kScoringDepth=40
+l.l.l.l.r.l.r.-l.-l.-r.-l.-l.-l.-r.-l.-r.-r.l.l.-r.-r.-r.l.-r.l.l.l.-r.-r.l.-r.l.-r.l.-r.l.-r.l.l.-r.l.l.l.-r.-r.l.l.-r.l.-r.-r.l.-r.-r.-r.-r.-r.-r.l.-r.-r.l.r.r.-l.-l.r.r.l.r.l.-r.l.l.l.l.l.l.l.l.-r.-r.-r.-r.-r.-r.-r.-r.-r.-r.l.l.l.l.l.l.l.l.l.-r.-r.-r.-r.-r.-r.-r.-r.-r.-r.l.l.l.l.l.l.l.l
