@@ -1,7 +1,10 @@
 #include "cube.cpp"
+#include <algorithm>
 
+using std::fill;
 using std::max;
 using std::min;
+using std::sort;
 using std::swap;
 
 struct RawEdgeFacletPosition {
@@ -495,9 +498,7 @@ template <int order_, typename ColorType_ = ColorType48> struct EdgeCube {
         return Formula(moves);
     }
 
-    inline auto ComputePLLParity() const
-        requires(order % 2 == 0)
-    {
+    inline auto ComputePLLParity() const requires(order % 2 == 0) {
         static constexpr auto kCL = (order - 4) / 2;
         static constexpr auto kCR = (order - 2) / 2;
         static constexpr auto adjecent_edge_facelets =
@@ -701,6 +702,7 @@ template <int order_, typename ColorType_ = ColorType48> struct EdgeCube {
         return {};
     }
 
+    /*
     // Kaggle フォーマットを読み取る
     inline void Read(const string& s) {
         assert(s.size() >= 6 * order * order * 2 - 1);
@@ -712,6 +714,7 @@ template <int order_, typename ColorType_ = ColorType48> struct EdgeCube {
                     i += 2;
                 }
     }
+    */
 
     // 注: corner_parity は変更されない
     // 面倒すぎる
@@ -865,6 +868,8 @@ template <int order> struct EdgeAction {
     Formula formula;
     EdgeFaceletChanges facelet_changes;
 
+    inline EdgeAction() : formula(), facelet_changes() {}
+
     inline EdgeAction(const Formula& formula)
         : formula(formula),
           facelet_changes(EdgeCube::ComputeFaceletChanges(formula)) {
@@ -877,6 +882,8 @@ template <int order> struct EdgeAction {
     }
 
     inline bool CanMergeWith(const EdgeAction& next_action) const {
+        assert(false); // deprecated
+        /*
         assert(formula.Cost() > 0 && next_action.formula.Cost() > 0);
         // 無の action ができるとまずい
         if (formula.Cost() == 1 && next_action.formula.Cost() == 1)
@@ -886,20 +893,72 @@ template <int order> struct EdgeAction {
         if (formula.moves.back().Inv() == next_action.formula.moves.front())
             return true;
         return false;
+        */
+    }
+
+    inline void MergeInplace(const EdgeAction& action) {
+        int idx_action = 0;
+        const int n_action = (int)action.formula.moves.size();
+        while (idx_action < n_action) {
+            if (formula.moves.size() == 0 ||
+                formula.moves.back().GetAxis() !=
+                    action.formula.moves[idx_action].GetAxis()) {
+                // 以降全て追加
+                while (idx_action < n_action) {
+                    formula.moves.emplace_back(
+                        action.formula.moves[idx_action++]);
+                }
+            } else {
+                Move::Axis axis = formula.moves.back().GetAxis();
+                // 逐次追加
+                // 愚直にメモ
+                array<i8, order> cnt_move{};
+                // add action move
+                while (idx_action < n_action &&
+                       axis == action.formula.moves[idx_action].GetAxis()) {
+                    const auto& mov = action.formula.moves[idx_action++];
+                    cnt_move[mov.depth] += mov.IsClockWise() ? 1 : -1;
+                }
+                // add formula move
+                while (formula.moves.size() != 0 &&
+                       axis == formula.moves.back().GetAxis()) {
+                    const auto& mov = formula.moves.back();
+                    cnt_move[mov.depth] += mov.IsClockWise() ? 1 : -1;
+                    formula.moves.pop_back();
+                }
+                // formula に追加
+                for (int i = 0; i < order; i++) {
+                    auto& rot = cnt_move[i];
+                    /* cerr << i << " " << int(rot) << endl; */
+                    while (rot <= -2)
+                        rot += 4;
+                    while (rot >= 3)
+                        rot -= 4;
+
+                    if (rot == -1) {
+                        Move mov{Move::Direction(i8((i8(axis) << 1) + 1)),
+                                 i8(i)};
+                        formula.moves.emplace_back(mov);
+                    } else if (rot == 0) {
+                    } else if (rot == 1) {
+                        Move mov{Move::Direction((i8(i8(axis) << 1))), i8(i)};
+                        formula.moves.emplace_back(mov);
+                    } else if (rot == 2) {
+                        Move mov{Move::Direction((i8(i8(axis) << 1))), i8(i)};
+                        formula.moves.emplace_back(mov);
+                        formula.moves.emplace_back(mov);
+                    } else {
+                        assert(false);
+                    }
+                }
+            }
+        }
     }
 
     inline EdgeAction Merge(const EdgeAction& next_action) const {
-        assert(CanMergeWith(next_action));
-        auto result_formula = formula;
-        result_formula.moves.pop_back();
-        result_formula.moves.insert(result_formula.moves.end(),
-                                    next_action.formula.moves.begin() + 1,
-                                    next_action.formula.moves.end());
-        // FaceletChanges は使われないはずなので、
-        // 使われたらエラーが出そうな値を入れておく
-        return EdgeAction(
-            result_formula,
-            EdgeFaceletChanges{{{{-100, -101}, {-102, -103}}}, false});
+        EdgeAction ret = *this;
+        ret.MergeInplace(next_action);
+        return ret;
     }
 
     inline auto Cost() const { return formula.Cost(); }
@@ -909,17 +968,19 @@ template <int order> struct EdgeState {
     using EdgeCube = ::EdgeCube<order>;
     using EdgeAction = ::EdgeAction<order>;
     EdgeCube cube;
-    int score;   // target との距離
-    int n_moves; // これまでに回した回数
+    int score; // target との距離
+    // int n_moves; // これまでに回した回数
 
     inline EdgeState(const EdgeCube& cube)
-        : cube(cube), score(cube.ComputeEdgeScore()), n_moves() {}
+        : cube(cube), score(cube.ComputeEdgeScore())
+    // , n_moves()
+    {}
 
     // inplace に変更する
     inline void Apply(const EdgeAction& action) {
         cube.Rotate(action.facelet_changes);
         score = cube.ComputeEdgeScore();
-        n_moves += action.Cost();
+        // n_moves += action.Cost();
     }
 };
 
@@ -970,9 +1031,95 @@ template <int order> struct EdgeNode {
     EdgeState state;
     shared_ptr<EdgeNode> parent;
     EdgeAction last_action;
+
+    EdgeAction all_action;
+    array<i8, order> concat_cnt_move;
+    array<bool, order> concat_seen;
+    array<i8, order> concat_seen_list;
+    int concat_seen_idx;
+
     inline EdgeNode(const EdgeState& state, const shared_ptr<EdgeNode>& parent,
                     const EdgeAction& last_action)
-        : state(state), parent(parent), last_action(last_action) {}
+        : state(state), parent(parent), last_action(last_action), all_action(),
+          concat_cnt_move(), concat_seen(), concat_seen_list(),
+          concat_seen_idx(0) {}
+    inline EdgeNode(const EdgeState& state, const shared_ptr<EdgeNode>& parent,
+                    const EdgeAction& last_action, const EdgeAction& all_action)
+        : state(state), parent(parent), last_action(last_action),
+          all_action(all_action), concat_cnt_move(), concat_seen(),
+          concat_seen_list(), concat_seen_idx(0) {}
+
+    // TODO 手筋を全て保存
+
+    int CostApplied(const EdgeAction& action) {
+        int cost = all_action.formula.Cost() + action.Cost();
+        int idx_action = 0;
+        int idx_all_action = (int)all_action.formula.moves.size() - 1;
+        const int n_action = (int)action.formula.moves.size();
+        while (idx_action < n_action) {
+            if (idx_all_action < 0 ||
+                all_action.formula.moves[idx_all_action].GetAxis() !=
+                    action.formula.moves[idx_action].GetAxis()) {
+                // 以降全て追加
+                break;
+            } else {
+                Move::Axis axis =
+                    all_action.formula.moves[idx_all_action].GetAxis();
+                // 逐次追加
+                // 愚直にメモ
+                assert(concat_seen_idx == 0);
+                // add action move
+                while (idx_action < n_action &&
+                       axis == action.formula.moves[idx_action].GetAxis()) {
+                    const auto& mov = action.formula.moves[idx_action++];
+                    concat_cnt_move[mov.depth] += mov.IsClockWise() ? 1 : -1;
+                    cost--;
+
+                    // update seen list
+                    if (!concat_seen[mov.depth]) {
+                        concat_seen[mov.depth] = true;
+                        concat_seen_list[concat_seen_idx++] = mov.depth;
+                    }
+                }
+                // add all_action move
+                while (idx_all_action >= 0 &&
+                       axis ==
+                           all_action.formula.moves[idx_all_action].GetAxis()) {
+                    const auto& mov = all_action.formula.moves[idx_all_action];
+                    concat_cnt_move[mov.depth] += mov.IsClockWise() ? 1 : -1;
+                    idx_all_action--;
+                    cost--;
+
+                    // update seen list
+                    if (!concat_seen[mov.depth]) {
+                        concat_seen[mov.depth] = true;
+                        concat_seen_list[concat_seen_idx++] = mov.depth;
+                    }
+                }
+                // all_action に追加
+                bool flag_all_zero = true;
+                while (concat_seen_idx > 0) {
+                    const i8 depth = concat_seen_list[--concat_seen_idx];
+                    auto& rot = concat_cnt_move[depth];
+                    /* cerr << i << " " << int(rot) << endl; */
+                    while (rot <= -2)
+                        rot += 4;
+                    while (rot >= 3)
+                        rot -= 4;
+
+                    if (rot != 0)
+                        flag_all_zero = false;
+
+                    cost += abs(rot);
+                    rot = 0;
+                    concat_seen[depth] = false;
+                }
+                if (!flag_all_zero)
+                    break;
+            }
+        }
+        return cost;
+    }
 };
 
 template <int order> struct EdgeBeamSearchSolver {
@@ -1013,36 +1160,147 @@ template <int order> struct EdgeBeamSearchSolver {
                     cerr << "Solved!" << endl;
                     return node;
                 }
+                const auto check_unique = [&](const auto& n_moves,
+                                              const auto& state) {
+                    for (auto& node : nodes[n_moves]) {
+                        if (node->state.cube == state.cube)
+                            return false;
+                    }
+                    return true;
+                };
+
                 for (const auto& action :
                      action_candidate_generator.Generate(node->state)) {
                     auto new_state = node->state;
                     new_state.Apply(action);
-                    const auto try_make_new_node = [this,
-                                                    &rng](const auto& node,
-                                                          const auto& new_state,
-                                                          const auto& action) {
-                        if (new_state.n_moves >= (int)nodes.size())
-                            nodes.resize(new_state.n_moves + 1);
-                        if ((int)nodes[new_state.n_moves].size() < beam_width) {
-                            nodes[new_state.n_moves].emplace_back(
-                                new EdgeNode(new_state, node, action));
+                    /*
+                    if (action.formula.Cost() == 1 &&
+                        (action.formula.moves[0].depth == 0 ||
+                         action.formula.moves[0].depth == order - 1)) {
+                        if (node->state.score != new_state.score) {
+                            cerr << node->state.score << " " << new_state.score
+                                 << endl;
+                            node->state.cube.Display();
+                            new_state.cube.Display();
+                        }
+                    }
+                    */
+
+                    const auto try_make_new_node = [this, &rng, check_unique](
+                                                       const auto& node,
+                                                       const auto& new_state,
+                                                       const auto& action) {
+                        int new_n_moves = node->CostApplied(action);
+                        if (new_n_moves <= node->all_action.formula.Cost())
+                            return;
+                        /*
+                        if (new_n_moves <= node->all_action.formula.Cost() +
+                                               action.formula.Cost() - 6) {
+                            cerr << new_n_moves << endl;
+                            cerr << node->all_action.formula.Cost() +
+                                        action.formula.Cost()
+                                 << endl;
+                            node->all_action.formula.Print(cerr);
+                            cerr << endl;
+                            action.formula.Print(cerr);
+                            cerr << endl;
+                            cerr << endl;
+                        }
+                        assert(new_n_moves ==
+                               node->all_action.Merge(action).formula.Cost());
+                        */
+                        if (new_n_moves >= (int)nodes.size())
+                            nodes.resize(new_n_moves + 1);
+                        if ((int)nodes[new_n_moves].size() < beam_width) {
+                            if (check_unique(new_n_moves, new_state)) {
+
+                                nodes[new_n_moves].emplace_back(new EdgeNode(
+                                    new_state, node, action,
+                                    node->all_action.Merge(action)));
+                            }
                         } else {
-                            const auto idx = rng.Next() % beam_width;
-                            if (new_state.score <
-                                nodes[new_state.n_moves][idx]->state.score)
-                                nodes[new_state.n_moves][idx].reset(
-                                    new EdgeNode(new_state, node, action));
+                            if (check_unique(new_n_moves, new_state)) {
+                                const auto idx = rng.Next() % beam_width;
+                                if (new_state.score <
+                                    nodes[new_n_moves][idx]->state.score)
+                                    nodes[new_n_moves][idx].reset(new EdgeNode(
+                                        new_state, node, action,
+                                        node->all_action.Merge(action)));
+                            }
                         }
                     };
-                    if (node->parent != nullptr &&
-                        node->last_action.CanMergeWith(action)) {
-                        new_state.n_moves -= 2;
-                        const auto merged_action =
-                            node->last_action.Merge(action);
-                        try_make_new_node(node->parent, new_state,
-                                          merged_action);
-                    } else {
-                        try_make_new_node(node, new_state, action);
+                    try_make_new_node(node, new_state, action);
+                }
+
+                // 並列化
+                if (node->parent != nullptr) {
+                    /* if (true) { */
+                    array<bool, order> use_slice{};
+                    for (const auto& mov : node->last_action.formula.moves) {
+                        use_slice[mov.depth] = true;
+                        use_slice[order - 1 - mov.depth] = true;
+                    }
+                    for (i8 depth1 = 1; depth1 < order / 2; depth1++) {
+                        if (!use_slice[depth1])
+                            continue;
+                        for (i8 depth2 = 1; depth2 < order - 1; depth2++) {
+                            if (use_slice[depth2] ||
+                                (order % 2 == 1 && depth2 == order / 2))
+                                continue;
+                            EdgeAction action_new;
+                            for (const auto& mov :
+                                 node->last_action.formula.moves) {
+                                action_new.formula.moves.emplace_back(mov);
+                                if (mov.depth == depth1) {
+                                    Move mov_tmp = mov;
+                                    mov_tmp.depth = depth2;
+                                    action_new.formula.moves.emplace_back(
+                                        mov_tmp);
+                                } else if (mov.depth == order - 1 - depth1) {
+                                    Move mov_tmp = mov;
+                                    mov_tmp.depth = order - 1 - depth2;
+                                    action_new.formula.moves.emplace_back(
+                                        mov_tmp);
+                                }
+                            }
+                            /*
+                            node->last_action.formula.Print(cerr);
+                            cerr << endl;
+                            action_new.formula.Print(cerr);
+                            cerr << endl;
+                            cerr << endl;
+                            */
+
+                            auto new_state = node->parent->state;
+                            new_state.Apply(action_new);
+                            int new_n_moves =
+                                node->parent->CostApplied(action_new);
+                            if (new_n_moves <= node->all_action.formula.Cost())
+                                continue;
+                            if (new_n_moves >= (int)nodes.size())
+                                nodes.resize(new_n_moves + 1);
+                            if ((int)nodes[new_n_moves].size() < beam_width) {
+                                if (check_unique(new_n_moves, new_state)) {
+                                    nodes[new_n_moves].emplace_back(
+                                        new EdgeNode(
+                                            new_state, node->parent, action_new,
+                                            node->parent->all_action.Merge(
+                                                action_new)));
+                                }
+                            } else {
+                                if (check_unique(new_n_moves, new_state)) {
+                                    const auto idx = rng.Next() % beam_width;
+                                    if (new_state.score <
+                                        nodes[new_n_moves][idx]->state.score)
+                                        nodes[new_n_moves][idx].reset(
+                                            new EdgeNode(
+                                                new_state, node->parent,
+                                                action_new,
+                                                node->parent->all_action.Merge(
+                                                    action_new)));
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1165,7 +1423,7 @@ template <int order> struct EdgeBeamSearchSolver {
 
     const auto node = solver.Solve(initial_cube);
     if (node != nullptr) {
-        cout << node->state.n_moves << endl;
+        cout << node->all_action.formula.Cost() << endl;
         auto moves = vector<Move>();
         for (auto p = node; p->parent != nullptr; p = p->parent)
             for (auto i = (int)p->last_action.formula.moves.size() - 1; i >= 0;
@@ -1184,7 +1442,7 @@ template <int order>
 static void SolveWithOrder(const int problem_id, const bool is_normal,
                            const Formula& sample_formula) {
     constexpr auto beam_width = 32;
-    constexpr auto formula_depth = 8;
+    constexpr auto formula_depth = order <= 5 ? 9 : order <= 19 ? 8 : 7;
     const auto formula_file =
         format("out/edge_formula_{}_{}.txt", order, formula_depth);
 
@@ -1272,12 +1530,9 @@ static void SolveWithOrder(const int problem_id, const bool is_normal,
         return;
 
     // 結果を表示する
-    cout << node->state.n_moves << endl;
-    for (auto p = node; p->parent != nullptr; p = p->parent)
-        for (auto i = (int)p->last_action.formula.moves.size() - 1; i >= 0; i--)
-            result_moves.emplace_back(p->last_action.formula.moves[i]);
-    reverse(result_moves.begin() + parity_resolving_formula.Cost(),
-            result_moves.end());
+    cout << node->all_action.formula.Cost() << endl;
+    copy(node->all_action.formula.moves.begin(),
+         node->all_action.formula.moves.end(), back_inserter(result_moves));
     const auto solution = Formula(result_moves);
     solution.Print();
     cout << endl;
