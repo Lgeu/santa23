@@ -1,0 +1,8 @@
+# Number of formulas: 6
+
+f1
+-f1
+r1
+-r1
+d1
+-d1

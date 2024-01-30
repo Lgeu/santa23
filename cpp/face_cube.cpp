@@ -41,7 +41,9 @@ std::mutex mtx;
 
 constexpr int Order = ORDER;
 
-#if ORDER == 4
+#if ORDER == 3
+constexpr int OrderFormula = 3;
+#elif ORDER == 4
 constexpr int OrderFormula = 4;
 #elif ORDER == 5
 constexpr int OrderFormula = 5;
@@ -1844,6 +1846,9 @@ template <int order> struct FaceBeamSearchSolver {
                         nodess.resize(beam_width, start_node);
                     }
                 }
+
+                if(order==3 && beam_width >= 1000)
+                    exit(0);
 
             } else {
                 break;
