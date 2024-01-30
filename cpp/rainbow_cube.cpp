@@ -167,7 +167,8 @@ template <int order> struct RainbowBeamSearchSolver {
         action_candidate_generator.FromFile(formula_file, is_normal);
     }
 
-    inline shared_ptr<RainbowNode> Solve(const RainbowCube& start_cube) {
+    inline shared_ptr<RainbowNode> Solve(const RainbowCube& start_cube,
+                                         const int n_wildcards) {
         auto rng = RandomNumberGenerator(42);
 
         const auto start_state = RainbowState(start_cube, target_cube);
@@ -186,7 +187,7 @@ template <int order> struct RainbowBeamSearchSolver {
                     continue;
                 current_minimum_score =
                     min(current_minimum_score, node->state.score);
-                if (node->state.score == 0) {
+                if (node->state.score <= n_wildcards) {
                     cerr << "Solved!" << endl;
                     return node;
                 }
@@ -247,7 +248,8 @@ template <int order> struct RainbowBeamSearchSolver {
 
 template <int order>
 static void SolveWithOrder(const int problem_id, const bool is_normal,
-                           const Formula& sample_formula) {
+                           const Formula& sample_formula,
+                           const int n_wildcards) {
     assert(!is_normal);
     constexpr auto beam_width = 128;
     const auto formula_file = "out/rainbow_formula_4.txt";
@@ -301,7 +303,7 @@ static void SolveWithOrder(const int problem_id, const bool is_normal,
     // 解く
     auto solver = RainbowBeamSearchSolver<order>(target_cube, is_normal,
                                                  beam_width, formula_file);
-    const auto node = solver.Solve(initial_cube);
+    const auto node = solver.Solve(initial_cube, n_wildcards);
     if (node == nullptr) // 失敗
         return;
 
@@ -361,33 +363,35 @@ static void SolveWithOrder(const int problem_id, const bool is_normal,
     const auto filename_sample = "../input/sample_submission.csv";
     const auto [order, is_normal, sample_formula] =
         ReadKaggleInput(filename_puzzles, filename_sample, problem_id);
+    const auto n_wildcards =
+        ReadKaggleInputWildcard(filename_puzzles, problem_id);
     switch (order) {
     case 4:
-        SolveWithOrder<4>(problem_id, is_normal, sample_formula);
+        SolveWithOrder<4>(problem_id, is_normal, sample_formula, n_wildcards);
         break;
     case 5:
-        SolveWithOrder<5>(problem_id, is_normal, sample_formula);
+        SolveWithOrder<5>(problem_id, is_normal, sample_formula, n_wildcards);
         break;
     case 6:
-        SolveWithOrder<6>(problem_id, is_normal, sample_formula);
+        SolveWithOrder<6>(problem_id, is_normal, sample_formula, n_wildcards);
         break;
     case 7:
-        SolveWithOrder<7>(problem_id, is_normal, sample_formula);
+        SolveWithOrder<7>(problem_id, is_normal, sample_formula, n_wildcards);
         break;
     case 8:
-        SolveWithOrder<8>(problem_id, is_normal, sample_formula);
+        SolveWithOrder<8>(problem_id, is_normal, sample_formula, n_wildcards);
         break;
     case 9:
-        SolveWithOrder<9>(problem_id, is_normal, sample_formula);
+        SolveWithOrder<9>(problem_id, is_normal, sample_formula, n_wildcards);
         break;
     case 10:
-        SolveWithOrder<10>(problem_id, is_normal, sample_formula);
+        SolveWithOrder<10>(problem_id, is_normal, sample_formula, n_wildcards);
         break;
     case 19:
-        SolveWithOrder<19>(problem_id, is_normal, sample_formula);
+        SolveWithOrder<19>(problem_id, is_normal, sample_formula, n_wildcards);
         break;
     case 33:
-        SolveWithOrder<33>(problem_id, is_normal, sample_formula);
+        SolveWithOrder<33>(problem_id, is_normal, sample_formula, n_wildcards);
         break;
     default:
         assert(false);
