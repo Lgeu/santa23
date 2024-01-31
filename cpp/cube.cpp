@@ -490,7 +490,6 @@ struct Formula {
     // f1.d0.-r0.-f1 のような形式を読み取る
     inline Formula(const string& s)
         : moves(), use_facelet_changes(), facelet_changes() {
-        assert(s.size() >= 2);
         auto iss = istringstream(s);
         string token;
         while (getline(iss, token, '.')) {
