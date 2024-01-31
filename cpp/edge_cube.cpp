@@ -1058,6 +1058,10 @@ template <int order> struct EdgeNode {
 
     // TODO 手筋を全て保存
 
+    EdgeNode CopyNode() {
+        return EdgeNode(state, parent, last_action, all_action);
+    }
+
     int CostApplied(const EdgeAction& action) {
         int cost = all_action.formula.Cost() + action.Cost();
         int idx_action = 0;
@@ -1299,6 +1303,7 @@ template <int order> struct EdgeBeamSearchSolver {
 
                             // 並列化
                             if (node->parent != nullptr) {
+                                EdgeNode node_parent = node->parent->CopyNode();
                                 /* if (false) { */
                                 array<bool, order> use_slice{};
                                 for (const auto& mov :
@@ -1343,11 +1348,10 @@ template <int order> struct EdgeBeamSearchSolver {
                                         cerr << endl;
                                         */
 
-                                        auto new_state = node->parent->state;
+                                        auto new_state = node_parent.state;
                                         new_state.Apply(action_new);
                                         int new_n_moves =
-                                            node->parent->CostApplied(
-                                                action_new);
+                                            node_parent.CostApplied(action_new);
                                         if (new_n_moves <=
                                             node->all_action.formula.Cost())
                                             continue;
