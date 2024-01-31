@@ -1,11 +1,18 @@
 #include "cube.cpp"
 #include <algorithm>
+#include <mutex>
+#include <thread>
 
 using std::fill;
+using std::lock_guard;
 using std::max;
 using std::min;
+using std::mutex;
 using std::sort;
 using std::swap;
+using std::thread;
+
+mutex mtx;
 
 struct RawEdgeFacletPosition {
     i8 face_and_edge_id;
@@ -1132,15 +1139,21 @@ template <int order> struct EdgeBeamSearchSolver {
     EdgeActionCandidateGenerator action_candidate_generator;
     int beam_width;
     vector<vector<shared_ptr<EdgeNode>>> nodes;
+    int n_threads;
 
     inline EdgeBeamSearchSolver(const bool is_normal, const int beam_width,
-                                const string& formula_file)
-        : action_candidate_generator(), beam_width(beam_width), nodes() {
+                                const string& formula_file,
+                                const int n_threads = 1)
+        : action_candidate_generator(), beam_width(beam_width), nodes(),
+          n_threads(n_threads) {
         action_candidate_generator.FromFile(formula_file, is_normal);
     }
 
     inline shared_ptr<EdgeNode> Solve(const EdgeCube& start_cube) {
-        auto rng = RandomNumberGenerator(42);
+        // auto rng = RandomNumberGenerator(42);
+        vector<RandomNumberGenerator> rngs;
+        for (int i = 0; i < n_threads; i++)
+            rngs.emplace_back(RandomNumberGenerator(42 + i));
 
         const auto start_state = EdgeState(start_cube);
         const auto start_node = make_shared<EdgeNode>(
@@ -1148,6 +1161,7 @@ template <int order> struct EdgeBeamSearchSolver {
         nodes.clear();
         nodes.resize(1);
         nodes[0].push_back(start_node);
+        nodes.resize(9999);
 
         auto minimum_scores = array<int, 16>();
         fill(minimum_scores.begin(), minimum_scores.end(), 9999);
@@ -1160,150 +1174,243 @@ template <int order> struct EdgeBeamSearchSolver {
                     cerr << "Solved!" << endl;
                     return node;
                 }
-                const auto check_unique = [&](const auto& n_moves,
-                                              const auto& state) {
-                    for (auto& node : nodes[n_moves]) {
-                        if (node->state.cube == state.cube)
-                            return false;
-                    }
-                    return true;
-                };
-
-                for (const auto& action :
-                     action_candidate_generator.Generate(node->state)) {
-                    auto new_state = node->state;
-                    new_state.Apply(action);
-                    /*
-                    if (action.formula.Cost() == 1 &&
-                        (action.formula.moves[0].depth == 0 ||
-                         action.formula.moves[0].depth == order - 1)) {
-                        if (node->state.score != new_state.score) {
-                            cerr << node->state.score << " " << new_state.score
-                                 << endl;
-                            node->state.cube.Display();
-                            new_state.cube.Display();
-                        }
-                    }
-                    */
-
-                    const auto try_make_new_node = [this, &rng, check_unique](
-                                                       const auto& node,
-                                                       const auto& new_state,
-                                                       const auto& action) {
-                        int new_n_moves = node->CostApplied(action);
-                        if (new_n_moves <= node->all_action.formula.Cost())
-                            return;
-                        /*
-                        if (new_n_moves <= node->all_action.formula.Cost() +
-                                               action.formula.Cost() - 6) {
-                            cerr << new_n_moves << endl;
-                            cerr << node->all_action.formula.Cost() +
-                                        action.formula.Cost()
-                                 << endl;
-                            node->all_action.formula.Print(cerr);
-                            cerr << endl;
-                            action.formula.Print(cerr);
-                            cerr << endl;
-                            cerr << endl;
-                        }
-                        assert(new_n_moves ==
-                               node->all_action.Merge(action).formula.Cost());
-                        */
-                        if (new_n_moves >= (int)nodes.size())
-                            nodes.resize(new_n_moves + 1);
-                        if ((int)nodes[new_n_moves].size() < beam_width) {
-                            if (check_unique(new_n_moves, new_state)) {
-
-                                nodes[new_n_moves].emplace_back(new EdgeNode(
-                                    new_state, node, action,
-                                    node->all_action.Merge(action)));
-                            }
-                        } else {
-                            if (check_unique(new_n_moves, new_state)) {
-                                const auto idx = rng.Next() % beam_width;
-                                if (new_state.score <
-                                    nodes[new_n_moves][idx]->state.score)
-                                    nodes[new_n_moves][idx].reset(new EdgeNode(
-                                        new_state, node, action,
-                                        node->all_action.Merge(action)));
-                            }
-                        }
-                    };
-                    try_make_new_node(node, new_state, action);
-                }
-
-                // 並列化
-                if (node->parent != nullptr) {
-                    /* if (true) { */
-                    array<bool, order> use_slice{};
-                    for (const auto& mov : node->last_action.formula.moves) {
-                        use_slice[mov.depth] = true;
-                        use_slice[order - 1 - mov.depth] = true;
-                    }
-                    for (i8 depth1 = 1; depth1 < order / 2; depth1++) {
-                        if (!use_slice[depth1])
-                            continue;
-                        for (i8 depth2 = 1; depth2 < order - 1; depth2++) {
-                            if (use_slice[depth2] ||
-                                (order % 2 == 1 && depth2 == order / 2))
-                                continue;
-                            EdgeAction action_new;
-                            for (const auto& mov :
-                                 node->last_action.formula.moves) {
-                                action_new.formula.moves.emplace_back(mov);
-                                if (mov.depth == depth1) {
-                                    Move mov_tmp = mov;
-                                    mov_tmp.depth = depth2;
-                                    action_new.formula.moves.emplace_back(
-                                        mov_tmp);
-                                } else if (mov.depth == order - 1 - depth1) {
-                                    Move mov_tmp = mov;
-                                    mov_tmp.depth = order - 1 - depth2;
-                                    action_new.formula.moves.emplace_back(
-                                        mov_tmp);
-                                }
-                            }
-                            /*
-                            node->last_action.formula.Print(cerr);
-                            cerr << endl;
-                            action_new.formula.Print(cerr);
-                            cerr << endl;
-                            cerr << endl;
-                            */
-
-                            auto new_state = node->parent->state;
-                            new_state.Apply(action_new);
-                            int new_n_moves =
-                                node->parent->CostApplied(action_new);
-                            if (new_n_moves <= node->all_action.formula.Cost())
-                                continue;
-                            if (new_n_moves >= (int)nodes.size())
-                                nodes.resize(new_n_moves + 1);
-                            if ((int)nodes[new_n_moves].size() < beam_width) {
-                                if (check_unique(new_n_moves, new_state)) {
-                                    nodes[new_n_moves].emplace_back(
-                                        new EdgeNode(
-                                            new_state, node->parent, action_new,
-                                            node->parent->all_action.Merge(
-                                                action_new)));
-                                }
-                            } else {
-                                if (check_unique(new_n_moves, new_state)) {
-                                    const auto idx = rng.Next() % beam_width;
-                                    if (new_state.score <
-                                        nodes[new_n_moves][idx]->state.score)
-                                        nodes[new_n_moves][idx].reset(
-                                            new EdgeNode(
-                                                new_state, node->parent,
-                                                action_new,
-                                                node->parent->all_action.Merge(
-                                                    action_new)));
-                                }
-                            }
-                        }
-                    }
-                }
             }
+
+            // multithread
+            vector<thread> threads;
+            for (int ii = 0; ii < n_threads; ii++) {
+                int n_nodes = (int)nodes[current_cost].size();
+                thread th(
+                    [&](int ii) {
+                        auto& rng = rngs[ii];
+                        /* for (const auto& node : nodes[current_cost]) { */
+                        const auto check_unique = [&](const auto& n_moves,
+                                                      const auto& state) {
+                            for (auto& node : nodes[n_moves]) {
+                                if (node->state.cube == state.cube)
+                                    return false;
+                            }
+                            return true;
+                        };
+
+                        const int idx_node_low = ii * beam_width;
+                        const int idx_node_high = (ii + 1) * beam_width;
+                        for (int idx_node = idx_node_low;
+                             idx_node < idx_node_high; idx_node++) {
+                            if (idx_node >= n_nodes)
+                                continue;
+                            const auto& node = nodes[current_cost][idx_node];
+
+                            for (const auto& action :
+                                 action_candidate_generator.Generate(
+                                     node->state)) {
+                                auto new_state = node->state;
+                                new_state.Apply(action);
+                                /*
+                                if (action.formula.Cost() == 1 &&
+                                    (action.formula.moves[0].depth == 0 ||
+                                     action.formula.moves[0].depth == order -
+                                1)) { if (node->state.score != new_state.score)
+                                { cerr << node->state.score << " " <<
+                                new_state.score
+                                             << endl;
+                                        node->state.cube.Display();
+                                        new_state.cube.Display();
+                                    }
+                                }
+                                */
+
+                                const auto try_make_new_node = [this, &rng,
+                                                                check_unique](
+                                                                   const auto&
+                                                                       node,
+                                                                   const auto&
+                                                                       new_state,
+                                                                   const auto&
+                                                                       action) {
+                                    int new_n_moves = node->CostApplied(action);
+                                    if (new_n_moves <=
+                                        node->all_action.formula.Cost())
+                                        return;
+                                    /*
+                                    if (new_n_moves <=
+                                    node->all_action.formula.Cost() +
+                                                           action.formula.Cost()
+                                    - 6) { cerr << new_n_moves << endl; cerr
+                                    << node->all_action.formula.Cost() +
+                                                    action.formula.Cost()
+                                             << endl;
+                                        node->all_action.formula.Print(cerr);
+                                        cerr << endl;
+                                        action.formula.Print(cerr);
+                                        cerr << endl;
+                                        cerr << endl;
+                                    }
+                                    assert(new_n_moves ==
+                                           node->all_action.Merge(action).formula.Cost());
+                                    */
+                                    /*
+                                    if (new_n_moves >= (int)nodes.size()) {
+                                        nodes.resize(new_n_moves + 1);
+                                    }
+                                    */
+                                    if ((int)nodes[new_n_moves].size() <
+                                        n_threads * beam_width) {
+                                        lock_guard<mutex> lock(mtx);
+                                        if ((int)nodes[new_n_moves].size() <
+                                            n_threads * beam_width) {
+                                            if (check_unique(new_n_moves,
+                                                             new_state)) {
+
+                                                nodes[new_n_moves].emplace_back(
+                                                    new EdgeNode(
+                                                        new_state, node, action,
+                                                        node->all_action.Merge(
+                                                            action)));
+                                            }
+                                        }
+                                    } else {
+                                        const auto idx =
+                                            rng.Next() %
+                                            (n_threads * beam_width);
+                                        if (new_state.score <
+                                            nodes[new_n_moves][idx]
+                                                ->state.score) {
+                                            lock_guard<mutex> lock(mtx);
+                                            if (new_state.score <
+                                                nodes[new_n_moves][idx]
+                                                    ->state.score) {
+                                                if (check_unique(new_n_moves,
+                                                                 new_state)) {
+                                                    nodes[new_n_moves][idx]
+                                                        .reset(new EdgeNode(
+                                                            new_state, node,
+                                                            action,
+                                                            node->all_action
+                                                                .Merge(
+                                                                    action)));
+                                                }
+                                            }
+                                        }
+                                    }
+                                };
+                                try_make_new_node(node, new_state, action);
+                            }
+
+                            // 並列化
+                            if (node->parent != nullptr) {
+                                /* if (false) { */
+                                array<bool, order> use_slice{};
+                                for (const auto& mov :
+                                     node->last_action.formula.moves) {
+                                    use_slice[mov.depth] = true;
+                                    use_slice[order - 1 - mov.depth] = true;
+                                }
+                                for (i8 depth1 = 1; depth1 < order / 2;
+                                     depth1++) {
+                                    if (!use_slice[depth1])
+                                        continue;
+                                    for (i8 depth2 = 1; depth2 < order - 1;
+                                         depth2++) {
+                                        if (use_slice[depth2] ||
+                                            (order % 2 == 1 &&
+                                             depth2 == order / 2))
+                                            continue;
+                                        EdgeAction action_new;
+                                        for (const auto& mov :
+                                             node->last_action.formula.moves) {
+                                            action_new.formula.moves
+                                                .emplace_back(mov);
+                                            if (mov.depth == depth1) {
+                                                Move mov_tmp = mov;
+                                                mov_tmp.depth = depth2;
+                                                action_new.formula.moves
+                                                    .emplace_back(mov_tmp);
+                                            } else if (mov.depth ==
+                                                       order - 1 - depth1) {
+                                                Move mov_tmp = mov;
+                                                mov_tmp.depth =
+                                                    order - 1 - depth2;
+                                                action_new.formula.moves
+                                                    .emplace_back(mov_tmp);
+                                            }
+                                        }
+                                        /*
+                                        node->last_action.formula.Print(cerr);
+                                        cerr << endl;
+                                        action_new.formula.Print(cerr);
+                                        cerr << endl;
+                                        cerr << endl;
+                                        */
+
+                                        auto new_state = node->parent->state;
+                                        new_state.Apply(action_new);
+                                        int new_n_moves =
+                                            node->parent->CostApplied(
+                                                action_new);
+                                        if (new_n_moves <=
+                                            node->all_action.formula.Cost())
+                                            continue;
+                                        /*
+                                        if (new_n_moves >= (int)nodes.size())
+                                            nodes.resize(new_n_moves + 1);
+                                        */
+                                        if ((int)nodes[new_n_moves].size() <
+                                            n_threads * beam_width) {
+                                            lock_guard<mutex> lock(mtx);
+                                            if ((int)nodes[new_n_moves].size() <
+                                                n_threads * beam_width) {
+                                                if (check_unique(new_n_moves,
+                                                                 new_state)) {
+                                                    nodes[new_n_moves]
+                                                        .emplace_back(new EdgeNode(
+                                                            new_state,
+                                                            node->parent,
+                                                            action_new,
+                                                            node->parent
+                                                                ->all_action
+                                                                .Merge(
+                                                                    action_new)));
+                                                }
+                                            }
+                                        } else {
+                                            const auto idx =
+                                                rng.Next() %
+                                                (n_threads * beam_width);
+                                            if (new_state.score <
+                                                nodes[new_n_moves][idx]
+                                                    ->state.score) {
+                                                lock_guard<mutex> lock(mtx);
+                                                if (new_state.score <
+                                                    nodes[new_n_moves][idx]
+                                                        ->state.score) {
+                                                    if (check_unique(
+                                                            new_n_moves,
+                                                            new_state)) {
+                                                        nodes[new_n_moves][idx]
+                                                            .reset(new EdgeNode(
+                                                                new_state,
+                                                                node->parent,
+                                                                action_new,
+                                                                node->parent
+                                                                    ->all_action
+                                                                    .Merge(
+                                                                        action_new)));
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    ii);
+                threads.emplace_back(move(th));
+            }
+            for (auto& th : threads)
+                th.join();
+            threads.clear();
 
             cout << format("current_cost={} current_minimum_score={}",
                            current_cost, current_minimum_score)
@@ -1440,9 +1547,10 @@ template <int order> struct EdgeBeamSearchSolver {
 
 template <int order>
 static void SolveWithOrder(const int problem_id, const bool is_normal,
-                           const Formula& sample_formula) {
-    constexpr auto beam_width = 32;
-    constexpr auto formula_depth = order == 3 ? 1 : order <= 5 ? 9 : order <= 19 ? 8 : 7;
+                           const Formula& sample_formula, const int beam_width,
+                           const int n_threads) {
+    constexpr auto formula_depth =
+        order == 3 ? 1 : order <= 5 ? 9 : order <= 19 ? 8 : 7;
     const auto formula_file =
         format("out/edge_formula_{}_{}.txt", order, formula_depth);
 
@@ -1523,8 +1631,8 @@ static void SolveWithOrder(const int problem_id, const bool is_normal,
     display_cube(parity_resolving_formula);
 
     // 解く
-    auto solver =
-        EdgeBeamSearchSolver<order>(is_normal, beam_width, formula_file);
+    auto solver = EdgeBeamSearchSolver<order>(is_normal, beam_width,
+                                              formula_file, n_threads);
     const auto node = solver.Solve(parity_resolved_edge_cube);
     if (node == nullptr) // 失敗
         return;
@@ -1594,41 +1702,52 @@ static void SolveWithOrder(const int problem_id, const bool is_normal,
     }
 }
 
-[[maybe_unused]] static void Solve(const int problem_id) {
+[[maybe_unused]] static void Solve(const int problem_id, const int beam_width,
+                                   const int n_threads) {
     const auto filename_puzzles = "../input/puzzles.csv";
     const auto filename_sample = "../input/sample_submission.csv";
     const auto [order, is_normal, sample_formula] =
         ReadKaggleInput(filename_puzzles, filename_sample, problem_id);
     switch (order) {
     case 3:
-        SolveWithOrder<3>(problem_id, is_normal, sample_formula);
+        SolveWithOrder<3>(problem_id, is_normal, sample_formula, beam_width,
+                          n_threads);
         break;
     case 4:
-        SolveWithOrder<4>(problem_id, is_normal, sample_formula);
+        SolveWithOrder<4>(problem_id, is_normal, sample_formula, beam_width,
+                          n_threads);
         break;
     case 5:
-        SolveWithOrder<5>(problem_id, is_normal, sample_formula);
+        SolveWithOrder<5>(problem_id, is_normal, sample_formula, beam_width,
+                          n_threads);
         break;
     case 6:
-        SolveWithOrder<6>(problem_id, is_normal, sample_formula);
+        SolveWithOrder<6>(problem_id, is_normal, sample_formula, beam_width,
+                          n_threads);
         break;
     case 7:
-        SolveWithOrder<7>(problem_id, is_normal, sample_formula);
+        SolveWithOrder<7>(problem_id, is_normal, sample_formula, beam_width,
+                          n_threads);
         break;
     case 8:
-        SolveWithOrder<8>(problem_id, is_normal, sample_formula);
+        SolveWithOrder<8>(problem_id, is_normal, sample_formula, beam_width,
+                          n_threads);
         break;
     case 9:
-        SolveWithOrder<9>(problem_id, is_normal, sample_formula);
+        SolveWithOrder<9>(problem_id, is_normal, sample_formula, beam_width,
+                          n_threads);
         break;
     case 10:
-        SolveWithOrder<10>(problem_id, is_normal, sample_formula);
+        SolveWithOrder<10>(problem_id, is_normal, sample_formula, beam_width,
+                           n_threads);
         break;
     case 19:
-        SolveWithOrder<19>(problem_id, is_normal, sample_formula);
+        SolveWithOrder<19>(problem_id, is_normal, sample_formula, beam_width,
+                           n_threads);
         break;
     case 33:
-        SolveWithOrder<33>(problem_id, is_normal, sample_formula);
+        SolveWithOrder<33>(problem_id, is_normal, sample_formula, beam_width,
+                           n_threads);
         break;
     default:
         assert(false);
@@ -1665,11 +1784,19 @@ int main() { TestEdgeBeamSearch(); }
 // clang++ -std=c++20 -Wall -Wextra -O3 edge_cube.cpp -DSOLVE
 #ifdef SOLVE
 int main(const int argc, const char* const* const argv) {
-    if (argc != 2) {
+    int problem_id;
+    int beam_width = 32;
+    int n_threads = 1;
+    if (argc >= 2)
+        problem_id = atoi(argv[1]);
+    if (argc >= 3)
+        beam_width = atoi(argv[2]);
+    if (argc >= 4)
+        n_threads = atoi(argv[3]);
+    if (argc == 1 || argc >= 5) {
         cerr << format("Usage: {} <problem_id>", argv[0]) << endl;
         return 1;
     }
-    const auto problem_id = atoi(argv[1]);
-    Solve(problem_id);
+    Solve(problem_id, beam_width, n_threads);
 }
 #endif
