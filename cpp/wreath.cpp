@@ -372,103 +372,6 @@ template <int siz> struct Wreath {
             ring_b_outside_size - (int)ring_b_outside.count() -
             (c_positions[0].arc == Arc::BOutside ? 1 : 0) -
             (c_positions[1].arc == Arc::BOutside ? 1 : 0);
-        // int a_out_consecutive = 0;
-        // int a_in_consecutive = 0;
-        // int b_out_consecutive = 0;
-        // int b_in_consecutive = 0;
-
-        // int temp = 0;
-        // for (int i = 0; i < ring_a_outside_size; i++) {
-        //     if (!ring_a_outside[i])
-        //         temp++;
-        //     else
-        //         temp = 0;
-        //     a_out_consecutive = max(a_out_consecutive, temp);
-        // }
-        // temp = 0;
-        // if (c_positions[0].arc == Arc::BOutside)
-        //     ring_b_outside.set(c_positions[0].index, true);
-        // if (c_positions[1].arc == Arc::BOutside)
-        //     ring_b_outside.set(c_positions[1].index, true);
-        // for (int i = 0; i < ring_b_outside_size; i++) {
-        //     if (ring_b_outside[i])
-        //         temp++;
-        //     else
-        //         temp = 0;
-        //     b_out_consecutive = max(b_out_consecutive, temp);
-        // }
-        // if (c_positions[0].arc == Arc::BOutside)
-        //     ring_b_outside.set(c_positions[0].index, false);
-        // if (c_positions[1].arc == Arc::BOutside)
-        //     ring_b_outside.set(c_positions[1].index, false);
-
-        // temp = 0;
-        // for (int i = 0; i < ring_a_inside_size; i++) {
-        //     if (!ring_a_inside[i])
-        //         temp++;
-        //     else
-        //         temp = 0;
-        //     a_in_consecutive = max(a_in_consecutive, temp);
-        // }
-        // temp = 0;
-        // if (c_positions[0].arc == Arc::BInside)
-        //     ring_b_inside.set(c_positions[0].index, true);
-        // if (c_positions[1].arc == Arc::BInside)
-        //     ring_b_inside.set(c_positions[1].index, true);
-        // for (int i = 0; i < ring_b_inside_size; i++) {
-        //     if (ring_b_inside[i])
-        //         temp++;
-        //     else
-        //         temp = 0;
-        //     b_in_consecutive = max(b_in_consecutive, temp);
-        // }
-        // if (c_positions[0].arc == Arc::BInside)
-        //     ring_b_inside.set(c_positions[0].index, false);
-        // if (c_positions[1].arc == Arc::BInside)
-        //     ring_b_inside.set(c_positions[1].index, false);
-
-        // a_out_consecutive = min(a_out_consecutive, ring_a_outside_size-10);
-        // b_out_consecutive = min(b_out_consecutive, ring_b_outside_size-10);
-        // a_in_consecutive = min(a_in_consecutive, ring_a_inside_size-5);
-        // b_in_consecutive = min(b_in_consecutive, ring_b_inside_size-5);
-
-        // int a_out_distance = 0;
-        // for (int i = 0; i < ring_a_outside_size; i++)
-        //     if (ring_a_outside[i]) {
-        //         if (i < ring_a_outside_size / 2)
-        //             a_out_distance += 10 * (i + 1);
-        //         // else
-        //         //     a_out_distance += ring_a_outside_size - i;
-        //     }
-        // a_out_distance += min(i + 1, ring_a_outside_size - i);
-        // for (int i = 0; i < ring_a_inside_size; i++)
-        //     if (ring_a_inside[i]) {
-        //         if (i < ring_a_inside_size / 2)
-        //             a_out_distance += 10 * (i + 1);
-        //         // else
-        //         //     a_out_distance += ring_a_inside_size - i;
-        //     }
-        // if (!ring_a_inside[i])
-        //     a_out_distance += min(i + 1, ring_a_inside_size - i);
-        // int b_out_distance = 0;
-        // for (int i = 0; i < ring_b_outside_size; i++)
-        //     if (ring_b_outside[i]) {
-        //         if (i < ring_b_outside_size / 2)
-        //             b_out_distance += 10 * (i + 1);
-        //         // else
-        //         //     b_out_distance += ring_b_outside_size - i;
-        //     }
-        // if (!ring_b_outside[i])
-        //     b_out_distance += min(i + 1, ring_b_outside_size - i);
-        // for (int i = 0; i < ring_b_inside_size; i++)
-        //     if (ring_b_inside[i]) {
-        //         if (i < ring_b_inside_size / 2)
-        //             b_out_distance += 10 * (i + 1);
-        //         // else
-        //         //     b_out_distance += ring_b_inside_size - i;
-        //     }
-        //     // if (!ring_b_inside[i])
-        //     b_out_distance += min(i + 1, ring_b_inside_size - i);
 
         // 内側で揃っていない玉の数
         const auto a_inside_score = (int)ring_a_inside.count();
@@ -790,19 +693,6 @@ template <int siz, int scoring_depth> struct BeamSearchSolver {
                     cerr << "Solved!" << endl;
                     return node;
                 }
-                // vector<Move> next_moves;
-                // if (intersections[0] == 1) {
-                //     next_moves.push_back(kMoveB);
-                //     next_moves.push_back(kMoveBp);
-                // }
-                // else if (intersections[0] == 0 && c_positions[0].arc !=
-                // Arc::Intersection && c_positions[1].arc != Arc::Intersection)
-                // {
-                //     next_moves.push_back(kMoveA);
-                //     next_moves.push_back(kMoveAp);
-                // }
-                // else
-                //     next_moves = {kMoveA, kMoveAp, kMoveB, kMoveBp}
 
                 for (const auto& action : {kMoveA, kMoveAp, kMoveB, kMoveBp}) {
                     // for (const auto& action : next_moves) {
