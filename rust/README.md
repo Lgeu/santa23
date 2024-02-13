@@ -1,3 +1,5 @@
+Original version is https://gist.github.com/toast-uz/bc422aeac02d0fe20648c55f7b2469b8 by [toast-uz](https://www.kaggle.com/tatsuzoosawa)
+
 **Heuristic Transformer for Kaggle Santa-2023**
 
 For all Kagglers who love heuristic contests! Introducing a specialized tool designed for the essence of heuristic contests, tailored for Santa-2023. This tool is crafted with three main features to enhance your experience:
